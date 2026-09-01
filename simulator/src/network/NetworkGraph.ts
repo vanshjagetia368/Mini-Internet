@@ -125,9 +125,17 @@ export class NetworkGraph {
     return { ...d, interfaces };
   }
 
+  hasDevice(id: DeviceId): boolean {
+    return this._devices.has(id);
+  }
+
   getLink(id: LinkId): Link | undefined {
     const l = this._links.get(id);
     return l ? { ...l } : undefined;
+  }
+
+  hasLink(id: LinkId): boolean {
+    return this._links.has(id);
   }
 
   deviceIds(): DeviceId[] {
@@ -182,6 +190,35 @@ export class NetworkGraph {
     }
 
     return neighbors;
+  }
+
+  /**
+   * Returns all links connected to any interface on the given device.
+   */
+  getConnectedLinks(deviceId: DeviceId): Link[] {
+    const device = this._devices.get(deviceId);
+    if (!device) return [];
+
+    const links: Link[] = [];
+    for (const iface of device.interfaces.values()) {
+      if (!iface.connectedLinkId) continue;
+      const link = this._links.get(iface.connectedLinkId);
+      if (link) links.push({ ...link });
+    }
+    return links;
+  }
+
+  /**
+   * Returns the first link found connecting the two devices.
+   */
+  getLinkBetween(deviceA: DeviceId, deviceB: DeviceId): Link | undefined {
+    const neighbors = this.getNeighbors(deviceA);
+    for (const n of neighbors) {
+      if (n.deviceId === deviceB) {
+        return n.link;
+      }
+    }
+    return undefined;
   }
 
   // ── Mutations ──────────────────────────────────────────────────────────────

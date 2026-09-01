@@ -40,7 +40,7 @@ export class MACAddress {
       bytes[i] = Math.floor(Math.random() * 256);
     }
     // Set locally administered bit, clear multicast bit
-    bytes[0] = (bytes[0] & 0b11111100) | 0b00000010;
+    bytes[0] = (bytes[0]! & 0b11111100) | 0b00000010;
 
     const str = Array.from(bytes)
       .map((b) => b.toString(16).padStart(2, '0').toUpperCase())

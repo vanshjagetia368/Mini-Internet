@@ -33,7 +33,7 @@ describe('NetworkGraph', () => {
       }
     });
 
-    it('should add a Router with only a loopback by default', () => {
+      it('should add a Router with only a loopback by default', () => {
       const result = graph.addRouter('R1');
       expect(result.ok).toBe(true);
 
@@ -42,6 +42,10 @@ describe('NetworkGraph', () => {
         expect(device?.type).toBe('ROUTER');
         expect(device?.interfaces.size).toBe(1);
         expect(Array.from(device!.interfaces.values())[0].name).toBe('lo');
+        
+        // hasDevice check
+        expect(graph.hasDevice(result.value)).toBe(true);
+        expect(graph.hasDevice('unknown-id' as import('../types/ids.js').DeviceId)).toBe(false);
       }
     });
 
@@ -89,6 +93,10 @@ describe('NetworkGraph', () => {
         expect(link?.endpointA).toBe(pcEth0.id);
         expect(link?.endpointB).toBe(serverEth0.id);
         expect(link?.status).toBe('UP');
+
+        // hasLink check
+        expect(graph.hasLink(linkResult.value)).toBe(true);
+        expect(graph.hasLink('unknown-link' as import('../types/ids.js').LinkId)).toBe(false);
       }
     });
 
@@ -171,6 +179,74 @@ describe('NetworkGraph', () => {
       expect(pc1Neighbors[0].deviceId).toBe(r1.value);
       expect(pc1Neighbors[0].localInterface.id).toBe(pc1Eth0.id);
       expect(pc1Neighbors[0].remoteInterface.id).toBe(r1Eth0.value);
+    });
+
+    it('should resolve connected links and link between devices', () => {
+      const pc1 = graph.addPc('PC1');
+      const r1 = graph.addRouter('R1');
+      const server1 = graph.addServer('Server1');
+
+      if (!pc1.ok || !r1.ok || !server1.ok) throw new Error('Setup failed');
+
+      const pc1Eth0 = Array.from(graph.getDevice(pc1.value)!.interfaces.values()).find(i => i.name === 'eth0')!;
+      const server1Eth0 = Array.from(graph.getDevice(server1.value)!.interfaces.values()).find(i => i.name === 'eth0')!;
+      
+      const r1Eth0 = graph.addInterface(r1.value, 'eth0');
+      const r1Eth1 = graph.addInterface(r1.value, 'eth1');
+      if (!r1Eth0.ok || !r1Eth1.ok) throw new Error('Interface setup failed');
+
+      const link1 = graph.addLink(pc1Eth0.id, r1Eth0.value);
+      const link2 = graph.addLink(r1Eth1.value, server1Eth0.id);
+      if (!link1.ok || !link2.ok) throw new Error('Link setup failed');
+
+      // getConnectedLinks test
+      const r1Links = graph.getConnectedLinks(r1.value);
+      expect(r1Links.length).toBe(2);
+      expect(r1Links.map(l => l.id)).toContain(link1.value);
+      expect(r1Links.map(l => l.id)).toContain(link2.value);
+
+      const pc1Links = graph.getConnectedLinks(pc1.value);
+      expect(pc1Links.length).toBe(1);
+      expect(pc1Links[0].id).toBe(link1.value);
+
+      // getLinkBetween test
+      const linkBetweenPc1R1 = graph.getLinkBetween(pc1.value, r1.value);
+      expect(linkBetweenPc1R1).toBeDefined();
+      expect(linkBetweenPc1R1?.id).toBe(link1.value);
+
+      const linkBetweenR1Pc1 = graph.getLinkBetween(r1.value, pc1.value);
+      expect(linkBetweenR1Pc1).toBeDefined();
+      expect(linkBetweenR1Pc1?.id).toBe(link1.value);
+
+      // Unconnected devices
+      const linkBetweenPc1Server1 = graph.getLinkBetween(pc1.value, server1.value);
+      expect(linkBetweenPc1Server1).toBeUndefined();
+    });
+
+    it('should keep disconnected subgraphs isolated', () => {
+      // A -- B    C -- D
+      const a = graph.addPc('A');
+      const b = graph.addRouter('B');
+      const c = graph.addRouter('C');
+      const d = graph.addPc('D');
+
+      if (!a.ok || !b.ok || !c.ok || !d.ok) throw new Error('Setup failed');
+
+      const aEth0 = Array.from(graph.getDevice(a.value)!.interfaces.values()).find(i => i.name === 'eth0')!;
+      const bEth0 = graph.addInterface(b.value, 'eth0');
+      const cEth0 = graph.addInterface(c.value, 'eth0');
+      const dEth0 = Array.from(graph.getDevice(d.value)!.interfaces.values()).find(i => i.name === 'eth0')!;
+
+      if (!bEth0.ok || !cEth0.ok) throw new Error('Interface setup failed');
+
+      graph.addLink(aEth0.id, bEth0.value);
+      graph.addLink(cEth0.value, dEth0.id);
+
+      expect(graph.getNeighbors(a.value).map(n => n.deviceId)).toEqual([b.value]);
+      expect(graph.getNeighbors(c.value).map(n => n.deviceId)).toEqual([d.value]);
+
+      // No crossover
+      expect(graph.getLinkBetween(a.value, c.value)).toBeUndefined();
     });
   });
 

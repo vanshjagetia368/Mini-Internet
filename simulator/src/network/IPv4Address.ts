@@ -34,7 +34,7 @@ export class IPv4Address {
     if (!match) return false;
 
     for (let i = 1; i <= 4; i++) {
-      const octet = parseInt(match[i], 10);
+      const octet = parseInt(match[i]!, 10);
       if (octet < 0 || octet > 255) {
         return false;
       }

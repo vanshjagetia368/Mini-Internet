@@ -332,5 +332,20 @@ the TypeScript compiler enforces this at compile time.
 
 ---
 
+## 14. Network Graph Engine
+
+The `NetworkGraph` is the single source of truth for the simulator's topology.
+
+- **Storage**: The graph is stored entirely in-memory using `Map`s for efficient ID-based lookup (`_devices` and `_links`).
+- **Nodes & Links**: Nodes are modeled as `Device` entities containing a Map of `NetworkInterface`s. Links are modeled as `Link` entities that connect two specific `InterfaceId`s.
+- **Adjacency Representation**: The graph traverses adjacency dynamically but deterministically. Instead of a duplicate adjacency list, neighbors are computed on demand by looking at all interfaces on a device, finding connected links (`iface.connectedLinkId`), and resolving the remote endpoint interface.
+- **Mutation Rules**: Graph mutations are strictly centralized through methods like `addLink` and `addDevice`. Validations prevent invalid state transitions before modifying internal maps.
+- **Duplicate Rules**: Because each interface can hold only one `connectedLinkId`, it is structurally impossible to have parallel duplicate physical links on the exact same endpoint pair (interface pair). Parallel links between the same devices are permitted if they use distinct interfaces.
+- **Node-removal Behavior**: Removing a node operates using cascading deletes. All interfaces on the node are removed, which triggers the removal of all links connected to those interfaces. This guarantees no stale link references remain.
+- **Link-removal Behavior**: Removing a link detaches it from both endpoint interfaces by setting their `connectedLinkId` to `null` and deletes the link entity. It does NOT remove the endpoint nodes.
+- **Graph Invariants**: The graph strictly prevents self-connecting interfaces. Disconnected endpoints, duplicate names, and stale references after deletions are strictly prohibited. Devices and Links track `OperationalStatus` (UP/DOWN) without actually being removed from the topology.
+
+---
+
 *This document will be updated as phases are completed.*
 *Do not document unimplemented features as if they already exist.*
