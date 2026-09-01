@@ -65,6 +65,7 @@ export interface NetworkInterface {
   readonly id: InterfaceId;
   readonly deviceId: DeviceId;
   readonly name: string; // e.g., "eth0", "lo"
+  readonly macAddress: string; // e.g., "00:1A:2B:3C:4D:5E"
   readonly ipAddress: string | null; // IPv4 dotted-decimal, null if unassigned
   readonly subnetMask: string | null;
   readonly status: OperationalStatus;

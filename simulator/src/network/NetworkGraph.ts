@@ -22,6 +22,7 @@ import type { Device, DeviceType, Link, Network, NetworkInterface, OperationalSt
 import { type Result, ok, err } from '../types/errors.js';
 import { IdFactory } from '../types/ids.js';
 import type { EventBus } from '../events/EventBus.js';
+import { MACAddress } from './MACAddress.js';
 
 // ─── Internal Mutable Device ─────────────────────────────────────────────────
 
@@ -32,6 +33,7 @@ interface MutableInterface {
   id: InterfaceId;
   deviceId: DeviceId;
   name: string;
+  macAddress: string;
   ipAddress: string | null;
   subnetMask: string | null;
   status: OperationalStatus;
@@ -136,7 +138,69 @@ export class NetworkGraph {
     return Array.from(this._links.keys());
   }
 
+  /**
+   * Resolves the immediate neighbors of a device.
+   * Returns an array of objects containing the neighbor device ID, the connecting link,
+   * the local interface, and the neighbor's interface.
+   * Ordering is deterministic based on the order interfaces were created.
+   */
+  getNeighbors(deviceId: DeviceId): Array<{
+    deviceId: DeviceId;
+    link: Link;
+    localInterface: NetworkInterface;
+    remoteInterface: NetworkInterface;
+  }> {
+    const device = this._devices.get(deviceId);
+    if (!device) return [];
+
+    const neighbors: Array<{
+      deviceId: DeviceId;
+      link: Link;
+      localInterface: NetworkInterface;
+      remoteInterface: NetworkInterface;
+    }> = [];
+
+    for (const iface of device.interfaces.values()) {
+      if (!iface.connectedLinkId) continue;
+
+      const link = this._links.get(iface.connectedLinkId);
+      if (!link) continue;
+
+      // Determine which endpoint is the remote one
+      const isEndpointA = link.endpointA === iface.id;
+      const remoteInterfaceId = isEndpointA ? link.endpointB : link.endpointA;
+
+      const remoteInterface = this._findInterface(remoteInterfaceId);
+      if (!remoteInterface) continue;
+
+      neighbors.push({
+        deviceId: remoteInterface.deviceId,
+        link: { ...link },
+        localInterface: { ...iface },
+        remoteInterface: { ...remoteInterface },
+      });
+    }
+
+    return neighbors;
+  }
+
   // ── Mutations ──────────────────────────────────────────────────────────────
+
+  addPc(name: string): Result<DeviceId> {
+    const res = this.addDevice(name, 'PC');
+    if (res.ok) this.addInterface(res.value, 'eth0');
+    return res;
+  }
+
+  addServer(name: string): Result<DeviceId> {
+    const res = this.addDevice(name, 'SERVER');
+    if (res.ok) this.addInterface(res.value, 'eth0');
+    return res;
+  }
+
+  addRouter(name: string): Result<DeviceId> {
+    return this.addDevice(name, 'ROUTER');
+  }
 
   /**
    * Add a new device to the network.
@@ -150,6 +214,7 @@ export class NetworkGraph {
       id: loopbackId,
       deviceId: id,
       name: 'lo',
+      macAddress: '00:00:00:00:00:00',
       ipAddress: '127.0.0.1',
       subnetMask: '255.0.0.0',
       status: 'UP',
@@ -209,11 +274,27 @@ export class NetworkGraph {
 
   /**
    * Add an interface to an existing device.
+   * If macAddress is not provided, one is generated automatically.
    */
-  addInterface(deviceId: DeviceId, name: string): Result<InterfaceId> {
+  addInterface(deviceId: DeviceId, name: string, macAddress?: string): Result<InterfaceId> {
     const device = this._devices.get(deviceId);
     if (!device) {
       return err('ENTITY_NOT_FOUND', `Device ${deviceId} not found`);
+    }
+
+    for (const iface of device.interfaces.values()) {
+      if (iface.name === name) {
+        return err('DUPLICATE_INTERFACE', `Interface ${name} already exists on device ${deviceId}`);
+      }
+    }
+
+    let finalMacAddress: string;
+    if (macAddress) {
+      const macResult = MACAddress.create(macAddress);
+      if (!macResult.ok) return macResult;
+      finalMacAddress = macResult.value.toString();
+    } else {
+      finalMacAddress = MACAddress.generateLocal().toString();
     }
 
     const id = IdFactory.interface();
@@ -221,6 +302,7 @@ export class NetworkGraph {
       id,
       deviceId,
       name,
+      macAddress: finalMacAddress,
       ipAddress: null,
       subnetMask: null,
       status: 'UP',
