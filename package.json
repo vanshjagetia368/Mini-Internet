@@ -1,0 +1,24 @@
+{
+  "name": "mini-internet",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A browser-based network simulation laboratory",
+  "workspaces": [
+    "client",
+    "server",
+    "simulator"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace=client\" \"npm run dev --workspace=server\"",
+    "build": "npm run build --workspace=simulator && npm run build --workspace=server && npm run build --workspace=client",
+    "typecheck": "npm run typecheck --workspace=simulator && npm run typecheck --workspace=server && npm run typecheck --workspace=client",
+    "lint": "npm run lint --workspace=simulator && npm run lint --workspace=server && npm run lint --workspace=client",
+    "test": "npm run test --workspace=simulator && npm run test --workspace=server",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\" --ignore-path .gitignore"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "prettier": "^3.4.2",
+    "typescript-eslint": "^8.68.0"
+  }
+}

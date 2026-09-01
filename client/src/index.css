@@ -1,0 +1,34 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Global resets / design tokens ────────────────────────────────────────── */
+
+:root {
+  --color-bg-primary: #0f172a;      /* slate-900 */
+  --color-bg-surface: #1e293b;      /* slate-800 */
+  --color-accent: #38bdf8;          /* sky-400   */
+  --color-text-primary: #f1f5f9;    /* slate-100 */
+  --color-text-muted: #94a3b8;      /* slate-400 */
+  --color-border: #334155;          /* slate-700 */
+  --color-success: #34d399;         /* emerald-400 */
+  --color-danger: #f87171;          /* red-400   */
+  --color-warning: #fbbf24;         /* amber-400 */
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
