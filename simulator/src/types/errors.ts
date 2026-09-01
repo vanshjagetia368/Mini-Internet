@@ -23,7 +23,7 @@ export type SimulatorErrorCode =
   | 'INVALID_IP_CONFIG'
   | 'INVALID_MAC_ADDRESS'
   | 'INVALID_IPV4_ADDRESS'
-  | 'ENTITY_UNAVAILABLE'  // device/link is DOWN
+  | 'ENTITY_UNAVAILABLE' // device/link is DOWN
   | 'INVALID_ROUTE'
   | 'PACKET_DROPPED'
   | 'SIMULATION_STATE_ERROR'
@@ -66,13 +66,16 @@ export class SimulatorError extends Error {
  * Reserve thrown errors for truly unexpected/internal failures.
  */
 export type Result<T> =
-  | { readonly ok: true; readonly value: T }
-  | { readonly ok: false; readonly error: SimulatorError };
+  { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: SimulatorError };
 
 export function ok<T>(value: T): Result<T> {
   return { ok: true, value };
 }
 
-export function err(code: SimulatorErrorCode, message: string, context?: Record<string, unknown>): Result<never> {
+export function err(
+  code: SimulatorErrorCode,
+  message: string,
+  context?: Record<string, unknown>,
+): Result<never> {
   return { ok: false, error: new SimulatorError(code, message, context) };
 }

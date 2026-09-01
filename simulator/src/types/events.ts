@@ -71,6 +71,11 @@ export interface DeviceRemovedEvent extends BaseEvent {
   readonly deviceId: DeviceId;
 }
 
+export interface DeviceUpdatedEvent extends BaseEvent {
+  readonly type: 'DEVICE_UPDATED';
+  readonly deviceId: DeviceId;
+}
+
 export interface LinkCreatedEvent extends BaseEvent {
   readonly type: 'LINK_CREATED';
   readonly linkId: LinkId;
@@ -152,6 +157,7 @@ export interface SimulationCompletedEvent extends BaseEvent {
 export type SimulationEvent =
   | DeviceCreatedEvent
   | DeviceRemovedEvent
+  | DeviceUpdatedEvent
   | LinkCreatedEvent
   | LinkRemovedEvent
   | NodeFailedEvent

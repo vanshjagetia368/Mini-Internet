@@ -1,10 +1,22 @@
 /**
- * simulator/src/devices/ — Device-specific domain logic.
+ * @file simulator/src/devices/index.ts
  *
- * PLANNED (Phase 2):
- *   - Device factory functions
- *   - Default interface creation by device type
- *   - Device capability definitions (e.g., can-route, can-switch)
+ * Public exports for the device module.
  *
- * CURRENT STATE: Empty — all device state lives in NetworkGraph for now.
+ * The DeviceFactory is the recommended entry point for creating devices.
+ * It validates inputs and returns typed creation results including
+ * the IDs of automatically created default interfaces.
+ *
+ * All authoritative device state lives in NetworkGraph.
+ * DeviceFactory is a stateless facade that delegates mutations to it.
  */
+
+export { DeviceFactory } from './DeviceFactory.js';
+export type {
+  DeviceCreationOptions,
+  PcCreationOptions,
+  RouterCreationOptions,
+  ServerCreationOptions,
+  PcOrServerCreationResult,
+  RouterCreationResult,
+} from './DeviceFactory.js';

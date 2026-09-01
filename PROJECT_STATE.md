@@ -5,12 +5,13 @@ Completed:
 ✓ Development foundation
 ✓ Core domain foundation
 ✓ Network graph engine
+✓ Device engine
 
 Current:
-Graph engine completed
+Device engine completed
 
 Not yet implemented:
-- Device engine
+
 - IPv4/subnet engine
 - Packet engine
 - Routing

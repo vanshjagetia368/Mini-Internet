@@ -111,7 +111,12 @@ describe('Simulator Architecture Boundary', () => {
       const received: unknown[] = [];
       bus.onAll((evt) => received.push(evt));
 
-      const fake = { id: 'evt_test' as const, type: 'DEVICE_CREATED' as const, timestamp: 0, payload: {} };
+      const fake = {
+        id: 'evt_test' as const,
+        type: 'DEVICE_CREATED' as const,
+        timestamp: 0,
+        payload: {},
+      };
       bus.emit(fake);
 
       expect(received).toHaveLength(1);

@@ -1,9 +1,11 @@
 # Mini Internet — Architecture Document
 
-> **Document Status**: v0.2.0 — Prompt 2 (Foundation) Complete.
+> **Document Status**: v0.3.0 — Prompt 5 (Device Engine) Complete.
 > Prompt 1: ✅ Architecture Defined
 > Prompt 2: ✅ Project Foundation, Tooling, and Dev Environment Implemented
-> Prompt 3: ⏳ Core Domain Model (next phase)
+> Prompt 3: ✅ Core Domain Model
+> Prompt 4: ✅ Network Graph Engine
+> Prompt 5: ✅ Device Engine
 > Clearly marks what is **implemented**, **planned**, or **future**.
 
 ---
@@ -55,16 +57,17 @@ EVENT CONSUMERS
 
 The `simulator/` package has **zero dependencies** on:
 
-| Forbidden dependency     | Reason                                              |
-|--------------------------|-----------------------------------------------------|
-| React                    | UI framework — domain must not know about rendering |
-| React Flow               | Visual graph — domain must not know about visuals   |
-| Express                  | HTTP server — domain must not know about transport  |
-| WebSocket (ws)           | Communication — domain must not know about sockets  |
-| PostgreSQL / pg          | Storage — domain must not know about persistence    |
-| `window`, `document`     | Browser APIs — simulator runs in Node too           |
+| Forbidden dependency | Reason                                              |
+| -------------------- | --------------------------------------------------- |
+| React                | UI framework — domain must not know about rendering |
+| React Flow           | Visual graph — domain must not know about visuals   |
+| Express              | HTTP server — domain must not know about transport  |
+| WebSocket (ws)       | Communication — domain must not know about sockets  |
+| PostgreSQL / pg      | Storage — domain must not know about persistence    |
+| `window`, `document` | Browser APIs — simulator runs in Node too           |
 
 This means:
+
 - Simulator can be unit tested without launching any server or browser
 - Simulator can be replaced with a different implementation without touching React
 - Simulator can run server-side in Node, in a Worker, or in a test runner
@@ -78,23 +81,24 @@ without `"DOM"` — browser globals are not available at compile time.
 
 The React frontend (`client/`) is responsible for:
 
-| Responsibility          | Status       |
-|-------------------------|--------------|
-| Application shell (3-col layout)  | ✅ Prompt 2 |
-| React + TypeScript + Vite foundation | ✅ Prompt 2 |
-| Tailwind CSS + component styling | ✅ Prompt 2 |
-| React Flow dependency installed | ✅ Prompt 2 |
-| Visual network canvas   | Prompt 3      |
-| Device placement        | Prompt 3      |
-| Link creation UI        | Prompt 3      |
-| Configuration forms     | Prompt 3      |
-| Simulation controls     | Prompt 3      |
-| Packet visualization    | Prompt 4      |
-| Event log display       | Prompt 3      |
-| Statistics display      | Phase 4 / Prompt 5+      |
-| Presentation state      | Prompt 3      |
+| Responsibility                       | Status              |
+| ------------------------------------ | ------------------- |
+| Application shell (3-col layout)     | ✅ Prompt 2         |
+| React + TypeScript + Vite foundation | ✅ Prompt 2         |
+| Tailwind CSS + component styling     | ✅ Prompt 2         |
+| React Flow dependency installed      | ✅ Prompt 2         |
+| Visual network canvas                | Prompt 3            |
+| Device placement                     | Prompt 3            |
+| Link creation UI                     | Prompt 3            |
+| Configuration forms                  | Prompt 3            |
+| Simulation controls                  | Prompt 3            |
+| Packet visualization                 | Prompt 4            |
+| Event log display                    | Prompt 3            |
+| Statistics display                   | Phase 4 / Prompt 5+ |
+| Presentation state                   | Prompt 3            |
 
 **The client must NOT:**
+
 - Contain routing algorithms
 - Decide whether a packet can be forwarded
 - Maintain an authoritative network model
@@ -106,23 +110,24 @@ The React frontend (`client/`) is responsible for:
 
 The Express server (`server/`) is responsible for:
 
-| Responsibility                 | Status       |
-|--------------------------------|--------------|
-| HTTP API (Express)             | ✅ Prompt 2 |
-| Health endpoint (/api/health)  | ✅ Prompt 2 |
-| CORS + JSON middleware         | ✅ Prompt 2 |
-| Config loading (dotenv)        | ✅ Prompt 2 |
-| Application entry point        | ✅ Prompt 2 |
-| Error handling foundation      | ✅ Prompt 2 |
-| Directory structure (routes/controllers/middleware/services) | ✅ Prompt 2 |
-| SimulationEngine instantiation | ✅ Prompt 2 |
-| WebSocket server               | Prompt 3      |
-| Broadcasting simulator events  | Prompt 3      |
-| Command routing (API → engine) | Prompt 3      |
-| Persistence integration        | Phase 3+ / Prompt 5+    |
-| Authentication                 | Phase 4+ / Prompt 5+     |
+| Responsibility                                               | Status               |
+| ------------------------------------------------------------ | -------------------- |
+| HTTP API (Express)                                           | ✅ Prompt 2          |
+| Health endpoint (/api/health)                                | ✅ Prompt 2          |
+| CORS + JSON middleware                                       | ✅ Prompt 2          |
+| Config loading (dotenv)                                      | ✅ Prompt 2          |
+| Application entry point                                      | ✅ Prompt 2          |
+| Error handling foundation                                    | ✅ Prompt 2          |
+| Directory structure (routes/controllers/middleware/services) | ✅ Prompt 2          |
+| SimulationEngine instantiation                               | ✅ Prompt 2          |
+| WebSocket server                                             | Prompt 3             |
+| Broadcasting simulator events                                | Prompt 3             |
+| Command routing (API → engine)                               | Prompt 3             |
+| Persistence integration                                      | Phase 3+ / Prompt 5+ |
+| Authentication                                               | Phase 4+ / Prompt 5+ |
 
 **The server must NOT:**
+
 - Duplicate routing logic
 - Maintain a separate incompatible network model
 - Make routing decisions independently
@@ -133,30 +138,35 @@ The Express server (`server/`) is responsible for:
 
 The simulator engine (`simulator/`) is responsible for:
 
-| Responsibility            | Status       |
-|---------------------------|--------------|
-| Authoritative network state| ✅ Prompt 2 |
-| NetworkGraph (CRUD)       | ✅ Prompt 2 |
-| EventBus (publish/subscribe) | ✅ Prompt 2 |
-| SimulationEngine lifecycle| ✅ Prompt 2 |
-| Device/interface/link CRUD| ✅ Prompt 2 |
-| Failure injection         | ✅ Prompt 2 |
-| Routing algorithm interface| ✅ Prompt 2 |
-| Result/Error types        | ✅ Prompt 2 |
-| IdFactory (branded IDs)   | ✅ Prompt 2 |
-| Structured logger (Console/Silent) | ✅ Prompt 2 |
-| Vitest + 23 passing unit tests | ✅ Prompt 2 |
-| Architecture boundary tests (independence verified) | ✅ Prompt 2 |
-| Directory structure (core/network/devices/interfaces/links/packets/routing/events/failures/simulation/types) | ✅ Prompt 2 |
-| BFS routing               | Prompt 3      |
-| Dijkstra routing          | Prompt 3      |
-| Distance Vector routing   | Phase 4 / Prompt 4+      |
-| Link State routing        | Phase 4 / Prompt 4+      |
-| Packet simulation         | Prompt 3      |
-| Latency / loss / queues   | Prompt 3      |
-| Discrete event loop       | Prompt 3      |
-| Metrics collection        | Phase 4 / Prompt 5+      |
-| Deterministic PRNG        | Prompt 3      |
+| Responsibility                                                                                               | Status              |
+| ------------------------------------------------------------------------------------------------------------ | ------------------- |
+| Authoritative network state                                                                                  | ✅ Prompt 2         |
+| NetworkGraph (CRUD)                                                                                          | ✅ Prompt 2         |
+| EventBus (publish/subscribe)                                                                                 | ✅ Prompt 2         |
+| SimulationEngine lifecycle                                                                                   | ✅ Prompt 2         |
+| Device/interface/link CRUD                                                                                   | ✅ Prompt 2         |
+| Device type queries                                                                                          | ✅ Prompt 5         |
+| Interface management                                                                                         | ✅ Prompt 5         |
+| MAC address generation                                                                                       | ✅ Prompt 5         |
+| Device name uniqueness                                                                                       | ✅ Prompt 5         |
+| Interface status management                                                                                  | ✅ Prompt 5         |
+| Failure injection                                                                                            | ✅ Prompt 2         |
+| Routing algorithm interface                                                                                  | ✅ Prompt 2         |
+| Result/Error types                                                                                           | ✅ Prompt 2         |
+| IdFactory (branded IDs)                                                                                      | ✅ Prompt 2         |
+| Structured logger (Console/Silent)                                                                           | ✅ Prompt 2         |
+| Vitest + 57 passing unit tests                                                                               | ✅ Prompt 5         |
+| Architecture boundary tests (independence verified)                                                          | ✅ Prompt 2         |
+| Directory structure (core/network/devices/interfaces/links/packets/routing/events/failures/simulation/types) | ✅ Prompt 2         |
+| BFS routing                                                                                                  | Prompt 6            |
+| Dijkstra routing                                                                                             | Prompt 6            |
+| Distance Vector routing                                                                                      | Phase 4 / Prompt 6+ |
+| Link State routing                                                                                           | Phase 4 / Prompt 6+ |
+| Packet simulation                                                                                            | Prompt 7            |
+| Latency / loss / queues                                                                                      | Prompt 7            |
+| Discrete event loop                                                                                          | Prompt 7            |
+| Metrics collection                                                                                           | Phase 4 / Prompt 8+ |
+| Deterministic PRNG                                                                                           | Prompt 7            |
 
 ---
 
@@ -196,22 +206,18 @@ All routing algorithms implement `RoutingAlgorithm`:
 ```typescript
 interface RoutingAlgorithm {
   readonly name: string;
-  computeRoute(
-    network: Network,
-    sourceId: DeviceId,
-    destinationId: DeviceId,
-  ): Result<Route>;
+  computeRoute(network: Network, sourceId: DeviceId, destinationId: DeviceId): Result<Route>;
 }
 ```
 
 Planned implementations in `simulator/src/routing/`:
 
-| Algorithm        | Phase  | Description                      |
-|------------------|--------|----------------------------------|
-| BFS              | 3      | Unweighted shortest hop count    |
-| Dijkstra         | 3      | Weighted shortest path           |
-| Distance Vector  | 4      | RIP-style distributed routing    |
-| Link State       | 4      | OSPF-style global topology       |
+| Algorithm       | Phase | Description                   |
+| --------------- | ----- | ----------------------------- |
+| BFS             | 3     | Unweighted shortest hop count |
+| Dijkstra        | 3     | Weighted shortest path        |
+| Distance Vector | 4     | RIP-style distributed routing |
+| Link State      | 4     | OSPF-style global topology    |
 
 **Key rule**: Packets ask the routing subsystem for forwarding information.
 Packets do not implement routing themselves.
@@ -270,6 +276,7 @@ Co-located tests in simulator: `NetworkGraph.test.ts`, `EventBus.test.ts`
 ## 11. Planned Future Phases
 
 ### Phase 2 — Interactive UI + WebSocket
+
 - React Flow canvas with device nodes and link edges
 - Device palette and property panels
 - WebSocket server integration (real-time event stream)
@@ -278,6 +285,7 @@ Co-located tests in simulator: `NetworkGraph.test.ts`, `EventBus.test.ts`
 - Discrete simulation tick loop
 
 ### Phase 3 — Routing + Packet Simulation
+
 - BFS and Dijkstra routing implementations
 - Packet creation and forwarding
 - TTL, packet drop, delivery events
@@ -285,6 +293,7 @@ Co-located tests in simulator: `NetworkGraph.test.ts`, `EventBus.test.ts`
 - Route visualization on canvas
 
 ### Phase 4 — Advanced Features
+
 - Distance Vector and Link State routing
 - Seeded PRNG for deterministic experiments
 - Metrics collection (latency, throughput, loss rates)
@@ -292,6 +301,7 @@ Co-located tests in simulator: `NetworkGraph.test.ts`, `EventBus.test.ts`
 - Experiment engine (scripted scenarios)
 
 ### Phase 5 — Persistence + Deployment
+
 - PostgreSQL integration
 - Save/load network configurations
 - Simulation history storage
@@ -305,15 +315,15 @@ Co-located tests in simulator: `NetworkGraph.test.ts`, `EventBus.test.ts`
 
 Every simulation entity has a branded ID type:
 
-| Entity    | Type           | Prefix  |
-|-----------|----------------|---------|
-| Network   | `NetworkId`    | `net_`  |
-| Device    | `DeviceId`     | `dev_`  |
-| Interface | `InterfaceId`  | `iface_`|
-| Link      | `LinkId`       | `link_` |
-| Packet    | `PacketId`     | `pkt_`  |
-| Simulation| `SimulationId` | `sim_`  |
-| Event     | `EventId`      | `evt_`  |
+| Entity     | Type           | Prefix   |
+| ---------- | -------------- | -------- |
+| Network    | `NetworkId`    | `net_`   |
+| Device     | `DeviceId`     | `dev_`   |
+| Interface  | `InterfaceId`  | `iface_` |
+| Link       | `LinkId`       | `link_`  |
+| Packet     | `PacketId`     | `pkt_`   |
+| Simulation | `SimulationId` | `sim_`   |
+| Event      | `EventId`      | `evt_`   |
 
 **Branded types** prevent passing a `DeviceId` where a `LinkId` is expected —
 the TypeScript compiler enforces this at compile time.
@@ -322,17 +332,251 @@ the TypeScript compiler enforces this at compile time.
 
 ## 13. Configuration Strategy
 
-| Concern               | Location                  |
-|-----------------------|---------------------------|
-| Env var access        | `server/src/config/env.ts` only |
-| Client env vars       | `VITE_` prefix (Vite exposes these) |
-| Secrets               | Never in source code       |
-| Example values        | `.env.example`             |
-| Real values           | `.env` (gitignored)        |
+| Concern         | Location                            |
+| --------------- | ----------------------------------- |
+| Env var access  | `server/src/config/env.ts` only     |
+| Client env vars | `VITE_` prefix (Vite exposes these) |
+| Secrets         | Never in source code                |
+| Example values  | `.env.example`                      |
+| Real values     | `.env` (gitignored)                 |
 
 ---
 
-## 14. Network Graph Engine
+## 14. Device Engine
+
+The device engine provides comprehensive device and interface management built on top of the network graph foundation.
+
+### Device Hierarchy
+
+```
+Network
+  |
+  +-- PC
+  |    |
+  |    +-- Interface (lo, eth0, eth1, ...)
+  |
+  +-- Router
+  |    |
+  |    +-- Interface (lo, eth0, eth1, eth2, ...)
+  |
+  +-- Server
+       |
+       +-- Interface (lo, eth0, eth1, ...)
+```
+
+### Device Types
+
+The simulator supports the following device types:
+
+| Type   | Description                | Typical Use                         |
+| ------ | -------------------------- | ----------------------------------- |
+| PC     | Personal computer/endpoint | End-user devices, clients           |
+| ROUTER | Network router             | Multi-interface devices for routing |
+| SERVER | Server                     | Backend services, hosts             |
+| SWITCH | Network switch             | Layer 2 switching (future)          |
+
+Device types are represented as a type-safe string union in the domain model:
+
+```typescript
+export type DeviceType = 'PC' | 'ROUTER' | 'SWITCH' | 'SERVER';
+```
+
+### Device Properties
+
+Each device contains:
+
+- **id**: Unique branded identifier (DeviceId)
+- **name**: Human-readable name (must be unique within network)
+- **type**: DeviceType (PC, ROUTER, SERVER, SWITCH)
+- **status**: Operational status (UP/DOWN/DEGRADED)
+- **interfaces**: Map of NetworkInterface objects
+
+Device status is independent from deletion:
+
+- **DOWN** means the device is operationally unavailable but still exists in topology
+- **DELETED** means the device is removed from the network entirely
+
+### Interface Model
+
+Every interface belongs to exactly one device and contains:
+
+- **id**: Unique branded identifier (InterfaceId)
+- **deviceId**: Reference to owning device
+- **name**: Interface name (e.g., "eth0", "eth1", "lo") - unique within device
+- **macAddress**: MAC address in normalized format (XX:XX:XX:XX:XX:XX)
+- **ipAddress**: IPv4 address (dotted-decimal) or null if unassigned
+- **subnetMask**: Subnet mask or null if unassigned
+- **status**: Operational status (UP/DOWN/DEGRADED)
+- **connectedLinkId**: Reference to connected Link or null if disconnected
+
+Interface status is independent from device status:
+
+- An interface can be DOWN while its device is UP
+- A device can be DOWN while its interfaces remain individually addressable
+
+### MAC Address Model
+
+MAC addresses are handled by the `MACAddress` class which provides:
+
+- **Validation**: Ensures MAC addresses follow valid hex format with separators
+- **Normalization**: Converts all MACs to uppercase with colon separators (XX:XX:XX:XX:XX:XX)
+- **Generation**:
+  - Random generation for production use (`MACAddress.generateLocal()`)
+  - Deterministic generation for testing (`MACAddress.generateLocalForTesting(counter)`)
+
+Deterministic generation uses a counter-based approach to ensure reproducible test results while still generating valid locally-administered unicast MAC addresses.
+
+### IP Configuration Relationship
+
+IP configuration is attached to interfaces, not devices:
+
+```
+Device
+  |
+  +-- Interface
+       |
+       +-- IPv4 configuration (address + subnet mask)
+```
+
+This design is critical because:
+
+- Routers can have multiple interfaces on different networks
+- Each interface needs its own IP configuration
+- Future subnet logic operates on interface-level IP configuration
+
+### Device Registry Operations
+
+The NetworkGraph provides a complete device registry:
+
+**Device Operations:**
+
+- `addPc(name)` - Create PC with default loopback + eth0
+- `addServer(name)` - Create Server with default loopback + eth0
+- `addRouter(name)` - Create Router with default loopback only
+- `addDevice(name, type)` - Generic device creation
+- `removeDevice(id)` - Remove device and cascade connected links
+- `getDevice(id)` - Get device by ID
+- `getDeviceByName(name)` - Get device by name
+- `hasDevice(id)` - Check device existence
+- `deviceIds()` - Get all device IDs
+
+**Type Query Operations:**
+
+- `getRouters()` - Get all ROUTER type devices
+- `getPcs()` - Get all PC type devices
+- `getServers()` - Get all SERVER type devices
+- `getDevicesByType(type)` - Generic type query
+
+### Interface Management Operations
+
+**Interface Operations:**
+
+- `addInterface(deviceId, name, macAddress?)` - Add interface to device
+- `removeInterface(deviceId, interfaceId)` - Remove interface (rejects if connected)
+- `getInterface(deviceId, interfaceId)` - Get specific interface
+- `hasInterface(deviceId, interfaceId)` - Check interface existence
+- `getInterfaces(deviceId)` - Get all interfaces for device
+
+**Interface Status Operations:**
+
+- `failInterface(deviceId, interfaceId)` - Set interface to DOWN
+- `recoverInterface(deviceId, interfaceId)` - Set interface to UP
+
+### Validation Rules
+
+**Device Validation:**
+
+- Device IDs must be unique (enforced by IdFactory)
+- Device names must be unique within network
+- Device type must be valid DeviceType
+- Device status must be valid OperationalStatus
+
+**Interface Validation:**
+
+- Interface IDs must be unique (enforced by IdFactory)
+- Interface names must be unique within a device
+- MAC addresses must be valid format
+- MAC addresses are normalized to uppercase with colons
+- Interface cannot be removed while connected to a link
+
+**Graph Consistency:**
+
+- Device removal cascades to remove connected links
+- Interface removal rejects if interface is connected
+- No dangling link references after deletions
+- Self-connecting interfaces are prevented
+
+### Graph Integration
+
+The device engine is fully integrated with the network graph:
+
+**When a device is added:**
+
+```
+Device → NetworkGraph._devices → Network → Graph
+```
+
+**When a device is removed:**
+
+```
+NetworkGraph.removeDevice() → cascade link removal → consistent topology
+```
+
+**When an interface is removed:**
+
+```
+NetworkGraph.removeInterface() → validate no links → safe removal
+```
+
+All device engine operations emit events through the EventBus:
+
+- `DEVICE_CREATED` - When device is added
+- `DEVICE_REMOVED` - When device is removed
+- `DEVICE_UPDATED` - When device or interface state changes
+
+### Serialization
+
+The NetworkGraph's `snapshot()` method provides serializable device snapshots including:
+
+**Device snapshot includes:**
+
+- id
+- name
+- type
+- status
+- interfaces (complete map)
+
+**Interface snapshot includes:**
+
+- id
+- name
+- deviceId
+- macAddress
+- ipAddress
+- subnetMask
+- status
+- connectedLinkId
+
+Snapshots are deep copies that don't expose internal mutable state, making them safe for:
+
+- Routing algorithm input
+- Persistence layer storage
+- WebSocket transmission
+- Test assertions
+
+### Design Principles
+
+1. **Single Source of Truth**: NetworkGraph is the authoritative device registry
+2. **Type Safety**: Branded ID types prevent mixing entity types
+3. **Validation First**: All operations validate before mutation
+4. **Event-Driven**: Successful mutations emit events for consumers
+5. **Immutability**: Getters return copies, never references to internal state
+6. **Graph Consistency**: Operations maintain topology invariants
+7. **Testability**: Deterministic generation enables reproducible tests
+
+---
+
+## 15. Network Graph Engine
 
 The `NetworkGraph` is the single source of truth for the simulator's topology.
 
@@ -347,5 +591,5 @@ The `NetworkGraph` is the single source of truth for the simulator's topology.
 
 ---
 
-*This document will be updated as phases are completed.*
-*Do not document unimplemented features as if they already exist.*
+_This document will be updated as phases are completed._
+_Do not document unimplemented features as if they already exist._

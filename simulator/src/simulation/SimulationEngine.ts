@@ -53,11 +53,7 @@ export class SimulationEngine {
     this.logger = logger;
     this.routing = new RoutingAlgorithmRegistry();
 
-    this.network = new NetworkGraph(
-      config.networkId,
-      'Simulation Network',
-      this.eventBus,
-    );
+    this.network = new NetworkGraph(config.networkId, 'Simulation Network', this.eventBus);
 
     this.logger.info('SimulationEngine created', { simulationId: this.id });
   }
@@ -192,7 +188,10 @@ export class SimulationEngine {
 
       case 'SEND_PACKET':
         // TODO Phase 3: Packet simulation
-        return err('INVALID_COMMAND', 'SEND_PACKET not yet implemented — requires routing implementation first');
+        return err(
+          'INVALID_COMMAND',
+          'SEND_PACKET not yet implemented — requires routing implementation first',
+        );
 
       case 'RESUME_SIMULATION':
         // TODO Phase 2

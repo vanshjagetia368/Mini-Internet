@@ -24,12 +24,7 @@ import express from 'express';
 import cors from 'cors';
 import { config } from './config/env.js';
 import { healthRouter } from './api/healthRouter.js';
-import {
-  EventBus,
-  SimulationEngine,
-  IdFactory,
-  createLogger,
-} from '@mini-internet/simulator';
+import { EventBus, SimulationEngine, IdFactory, createLogger } from '@mini-internet/simulator';
 
 const logger = createLogger('server', config.isDevelopment ? 'DEBUG' : 'INFO');
 

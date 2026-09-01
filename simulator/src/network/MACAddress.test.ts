@@ -39,10 +39,42 @@ describe('MACAddress', () => {
     const mac = MACAddress.generateLocal();
     const result = MACAddress.create(mac.toString());
     expect(result.ok).toBe(true);
-    
+
     // Check locally administered bit (second least significant bit of first octet)
     const firstOctet = parseInt(mac.toString().split(':')[0], 16);
     expect(firstOctet & 0b00000010).toBe(0b00000010); // Locally administered bit is 1
     expect(firstOctet & 0b00000001).toBe(0); // Multicast bit is 0
+  });
+
+  it('should generate deterministic MAC addresses for testing', () => {
+    const mac1 = MACAddress.generateLocalForTesting(0);
+    const mac2 = MACAddress.generateLocalForTesting(0);
+    const mac3 = MACAddress.generateLocalForTesting(1);
+
+    // Same counter should produce same MAC
+    expect(mac1.toString()).toBe(mac2.toString());
+
+    // Different counters should produce different MACs
+    expect(mac1.toString()).not.toBe(mac3.toString());
+
+    // All should be valid MAC addresses
+    expect(MACAddress.create(mac1.toString()).ok).toBe(true);
+    expect(MACAddress.create(mac3.toString()).ok).toBe(true);
+
+    // Check locally administered bit
+    const firstOctet1 = parseInt(mac1.toString().split(':')[0], 16);
+    const firstOctet3 = parseInt(mac3.toString().split(':')[0], 16);
+    expect(firstOctet1 & 0b00000010).toBe(0b00000010);
+    expect(firstOctet3 & 0b00000010).toBe(0b00000010);
+  });
+
+  it('should generate unique MAC addresses for sequential counters', () => {
+    const macs = new Set<string>();
+    for (let i = 0; i < 100; i++) {
+      const mac = MACAddress.generateLocalForTesting(i);
+      macs.add(mac.toString());
+    }
+    // All 100 MACs should be unique
+    expect(macs.size).toBe(100);
   });
 });

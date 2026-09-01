@@ -74,11 +74,7 @@ export interface RoutingAlgorithm {
    * MUST NOT modify the network object.
    * MUST be deterministic for the same (network, source, destination) inputs.
    */
-  computeRoute(
-    network: Network,
-    sourceId: DeviceId,
-    destinationId: DeviceId,
-  ): Result<Route>;
+  computeRoute(network: Network, sourceId: DeviceId, destinationId: DeviceId): Result<Route>;
 }
 
 // ─── Algorithm Registry ───────────────────────────────────────────────────────

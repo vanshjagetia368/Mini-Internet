@@ -19,11 +19,11 @@ to be the network.
 
 ## Implementation Status
 
-| Prompt / Phase | Status | Description |
-|----------------|--------|-------------|
-| **Prompt 1** | ✅ **COMPLETE** | Architectural contract defined. Three-layer architecture, workspace structure, domain boundaries established. |
-| **Prompt 2** | ✅ **COMPLETE** | Project foundation, tooling, workspace, dev environment, client shell, server health endpoint, simulator test harness. |
-| **Prompt 3** | ⏳ **NEXT** | Core domain model — devices, links, interfaces, packets, BFS/Dijkstra routing, forwarding logic. |
+| Prompt / Phase | Status          | Description                                                                                                            |
+| -------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| **Prompt 1**   | ✅ **COMPLETE** | Architectural contract defined. Three-layer architecture, workspace structure, domain boundaries established.          |
+| **Prompt 2**   | ✅ **COMPLETE** | Project foundation, tooling, workspace, dev environment, client shell, server health endpoint, simulator test harness. |
+| **Prompt 3**   | ⏳ **NEXT**     | Core domain model — devices, links, interfaces, packets, BFS/Dijkstra routing, forwarding logic.                       |
 
 > **Current Version**: v0.2.0 — Foundation Complete (Prompt 2)
 
@@ -32,6 +32,7 @@ to be the network.
 ## What Is Implemented Now (Prompt 2)
 
 ### Workspace & Tooling
+
 - ✅ npm workspaces with three packages: `client`, `server`, `simulator`
 - ✅ TypeScript strict mode across all packages (noImplicitAny, strictNullChecks, etc.)
 - ✅ ESLint (TypeScript + React rules) + Prettier formatting
@@ -42,6 +43,7 @@ to be the network.
 - ✅ `.gitignore` for dependencies, builds, secrets, IDE files
 
 ### Client (`client/`)
+
 - ✅ React 19 + TypeScript + Vite application
 - ✅ Tailwind CSS 3 + PostCSS configured
 - ✅ `@xyflow/react` (React Flow v12) dependency installed (for Phase 3 canvas)
@@ -51,6 +53,7 @@ to be the network.
 - ⚠️ **No fake network data, no fake topology, no fake animations**
 
 ### Server (`server/`)
+
 - ✅ Node.js + TypeScript + Express 4 foundation
 - ✅ CORS + JSON body parsing middleware
 - ✅ Structured config loading via dotenv (`server/src/config/env.ts`)
@@ -62,6 +65,7 @@ to be the network.
 - ⚠️ **No persistence, no WebSocket connections yet, no REST API for simulation**
 
 ### Simulator (`simulator/`)
+
 - ✅ **Framework-independent package** (0 imports of React / Express / DOM / WebSocket / pg)
 - ✅ Compile-time enforcement via `tsconfig.json` → `lib: ["ES2022"]` only, no DOM
 - ✅ **23 unit tests passing** (3 test files) running in pure Node environment
@@ -78,6 +82,7 @@ to be the network.
 - ⚠️ **No packet forwarding, TTL, latency, or loss simulation yet**
 
 ### Documentation
+
 - ✅ `README.md` (this file) — purpose, setup, commands, status
 - ✅ `docs/ARCHITECTURE.md` — full architectural contract with status tables
 - ✅ Architecture principles documented with status per-component
@@ -86,23 +91,23 @@ to be the network.
 
 ## What Is NOT Yet Implemented (Coming in Prompt 3+)
 
-| Feature Category | Prompt | Details |
-|------------------|--------|---------|
-| **Domain model** | Prompt 3 | Real device behavior (Router/PC/Server), IP subnets, interface IP configuration |
-| **Routing** | Prompt 3 | BFS, Dijkstra routing algorithm implementations, routing table computation |
-| **Packets** | Prompt 3 | Packet creation, TTL, forwarding, delivery, drop events |
-| **Network canvas** | Prompt 3 | React Flow-based interactive canvas, drag-and-drop device placement, link drawing |
-| **Command dispatch** | Prompt 3 | Client → Server API commands → Simulator dispatch |
-| **WebSockets** | Prompt 3 | Server broadcasts simulation events to all connected clients in real time |
-| **Inspector panels** | Prompt 3 | Device properties, link configuration, packet inspection UI |
-| **Simulation controls** | Prompt 3 | Start/Pause/Stop, step-through controls, packet send UI |
-| **Failures & recovery** | Prompt 3 | Node failure, link failure, recovery UI, observation of routing reconvergence |
-| **Latency / loss / queues** | Prompt 3 | Queuing delay simulation, packet loss probability, bandwidth limits |
-| **Analytics** | Prompt 4+ | Metrics collection, throughput/latency dashboards, experiment results |
-| **Advanced routing** | Prompt 4+ | Distance Vector (RIP), Link State (OSPF) distributed algorithms |
-| **Persistence** | Prompt 5+ | PostgreSQL integration, save/load topologies, simulation history storage |
-| **Authentication** | Prompt 5+ | User accounts, login, shared topologies |
-| **Docker deploy** | Prompt 5+ | Production Docker Compose, CI/CD pipeline |
+| Feature Category            | Prompt    | Details                                                                           |
+| --------------------------- | --------- | --------------------------------------------------------------------------------- |
+| **Domain model**            | Prompt 3  | Real device behavior (Router/PC/Server), IP subnets, interface IP configuration   |
+| **Routing**                 | Prompt 3  | BFS, Dijkstra routing algorithm implementations, routing table computation        |
+| **Packets**                 | Prompt 3  | Packet creation, TTL, forwarding, delivery, drop events                           |
+| **Network canvas**          | Prompt 3  | React Flow-based interactive canvas, drag-and-drop device placement, link drawing |
+| **Command dispatch**        | Prompt 3  | Client → Server API commands → Simulator dispatch                                 |
+| **WebSockets**              | Prompt 3  | Server broadcasts simulation events to all connected clients in real time         |
+| **Inspector panels**        | Prompt 3  | Device properties, link configuration, packet inspection UI                       |
+| **Simulation controls**     | Prompt 3  | Start/Pause/Stop, step-through controls, packet send UI                           |
+| **Failures & recovery**     | Prompt 3  | Node failure, link failure, recovery UI, observation of routing reconvergence     |
+| **Latency / loss / queues** | Prompt 3  | Queuing delay simulation, packet loss probability, bandwidth limits               |
+| **Analytics**               | Prompt 4+ | Metrics collection, throughput/latency dashboards, experiment results             |
+| **Advanced routing**        | Prompt 4+ | Distance Vector (RIP), Link State (OSPF) distributed algorithms                   |
+| **Persistence**             | Prompt 5+ | PostgreSQL integration, save/load topologies, simulation history storage          |
+| **Authentication**          | Prompt 5+ | User accounts, login, shared topologies                                           |
+| **Docker deploy**           | Prompt 5+ | Production Docker Compose, CI/CD pipeline                                         |
 
 ---
 
@@ -163,7 +168,7 @@ See [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the full design contract.
 3. **Branded Identity Types**: Every domain entity has a branded ID type
    (`DeviceId`, `LinkId`, etc.). The TypeScript compiler prevents accidentally
    passing a `DeviceId` where a `LinkId` is expected. React Flow node/edge IDs
-   are *presentation* IDs, not domain IDs.
+   are _presentation_ IDs, not domain IDs.
 
 4. **Commands → Events**: Users issue `SimulationCommand`s (create device, fail
    link, send packet). The simulator processes them and emits
@@ -230,31 +235,31 @@ npm run dev --workspace=server    # http://localhost:3001
 
 ### Commands Reference
 
-| Command                                    | Description                        |
-|--------------------------------------------|------------------------------------|
-| `npm install`                              | Install all workspace dependencies |
-| `npm run dev`                              | Start client + server (parallel)   |
-| `npm run build`                            | Build all workspaces               |
-| `npm run typecheck`                        | Type-check all workspaces          |
-| `npm run lint`                             | Lint all workspaces                |
-| `npm run test`                             | Run all tests                      |
-| `npm run test --workspace=simulator`       | Run simulator unit tests only      |
-| `npm run format`                           | Format all files with Prettier     |
+| Command                              | Description                        |
+| ------------------------------------ | ---------------------------------- |
+| `npm install`                        | Install all workspace dependencies |
+| `npm run dev`                        | Start client + server (parallel)   |
+| `npm run build`                      | Build all workspaces               |
+| `npm run typecheck`                  | Type-check all workspaces          |
+| `npm run lint`                       | Lint all workspaces                |
+| `npm run test`                       | Run all tests                      |
+| `npm run test --workspace=simulator` | Run simulator unit tests only      |
+| `npm run format`                     | Format all files with Prettier     |
 
 ---
 
 ## Technology Stack
 
-| Layer     | Technology                       | Reason                                  |
-|-----------|----------------------------------|-----------------------------------------|
-| Frontend  | React 19, TypeScript, Vite       | Fast DX, type safety                    |
-| Canvas    | @xyflow/react (React Flow v12)   | Interactive network graph visualization |
-| Styling   | Tailwind CSS                     | Utility-first, consistent design system |
-| Backend   | Node.js, Express, TypeScript     | Unified TS stack, familiar ecosystem    |
-| Simulator | Pure TypeScript                  | Framework-independent domain logic      |
-| Testing   | Vitest                           | Fast, TypeScript-native test runner     |
-| Container | Docker + Docker Compose          | Reproducible environments               |
-| Database  | PostgreSQL (Phase 3+)            | Reliable relational persistence         |
+| Layer     | Technology                     | Reason                                  |
+| --------- | ------------------------------ | --------------------------------------- |
+| Frontend  | React 19, TypeScript, Vite     | Fast DX, type safety                    |
+| Canvas    | @xyflow/react (React Flow v12) | Interactive network graph visualization |
+| Styling   | Tailwind CSS                   | Utility-first, consistent design system |
+| Backend   | Node.js, Express, TypeScript   | Unified TS stack, familiar ecosystem    |
+| Simulator | Pure TypeScript                | Framework-independent domain logic      |
+| Testing   | Vitest                         | Fast, TypeScript-native test runner     |
+| Container | Docker + Docker Compose        | Reproducible environments               |
+| Database  | PostgreSQL (Phase 3+)          | Reliable relational persistence         |
 
 ---
 
@@ -264,6 +269,7 @@ See [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) for the engineering rules
 that all contributors must follow.
 
 Key rules:
+
 1. The simulator must never import React, Express, or browser APIs.
 2. Routing logic belongs in `simulator/src/routing/` — never in React components.
 3. All entity IDs are domain-generated branded types — not React Flow IDs.

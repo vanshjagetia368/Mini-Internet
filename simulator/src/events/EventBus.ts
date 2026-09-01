@@ -37,10 +37,7 @@ export class EventBus {
    * Subscribe to a specific event type.
    * Returns an unsubscribe function for cleanup.
    */
-  on<T extends SimulationEvent>(
-    type: T['type'],
-    handler: EventHandler<T>,
-  ): () => void {
+  on<T extends SimulationEvent>(type: T['type'], handler: EventHandler<T>): () => void {
     if (!this.handlers.has(type)) {
       this.handlers.set(type, new Set());
     }
@@ -59,7 +56,9 @@ export class EventBus {
    */
   onAll(handler: EventHandler<SimulationEvent>): () => void {
     this._wildcardHandlers.add(handler);
-    return () => { this._wildcardHandlers.delete(handler); };
+    return () => {
+      this._wildcardHandlers.delete(handler);
+    };
   }
 
   private readonly _wildcardHandlers = new Set<EventHandler<SimulationEvent>>();

@@ -62,6 +62,21 @@ export { RoutingAlgorithmRegistry } from './routing/RoutingAlgorithm.js';
 // ── Simulation engine ─────────────────────────────────────────────────────────
 export { SimulationEngine } from './simulation/SimulationEngine.js';
 
+// ── Network primitives ────────────────────────────────────────────────────────
+export { MACAddress } from './network/MACAddress.js';
+export { IPv4Address } from './network/IPv4Address.js';
+
+// ── Device factory ────────────────────────────────────────────────────────────
+export { DeviceFactory } from './devices/DeviceFactory.js';
+export type {
+  DeviceCreationOptions,
+  PcCreationOptions,
+  RouterCreationOptions,
+  ServerCreationOptions,
+  PcOrServerCreationResult,
+  RouterCreationResult,
+} from './devices/DeviceFactory.js';
+
 // ── Logging ───────────────────────────────────────────────────────────────────
 export type { Logger, LogLevel } from './core/logger.js';
 export { createLogger, SilentLogger } from './core/logger.js';

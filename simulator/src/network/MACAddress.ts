@@ -49,6 +49,32 @@ export class MACAddress {
     return new MACAddress(str);
   }
 
+  /**
+   * Generates a deterministic locally-administered unicast MAC address for testing.
+   * Uses a counter-based approach to ensure reproducible results.
+   *
+   * @param counter A numeric counter to generate deterministic MAC addresses
+   * @returns A MACAddress based on the counter value
+   */
+  public static generateLocalForTesting(counter: number): MACAddress {
+    const bytes = new Uint8Array(6);
+
+    // Use the counter to generate deterministic bytes
+    // Spread the counter across the bytes to ensure variety
+    bytes[0] = 0x02; // Locally administered bit set, multicast bit cleared
+    bytes[1] = (counter >> 16) & 0xff;
+    bytes[2] = (counter >> 8) & 0xff;
+    bytes[3] = counter & 0xff;
+    bytes[4] = 0x00;
+    bytes[5] = 0x01;
+
+    const str = Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, '0').toUpperCase())
+      .join(':');
+
+    return new MACAddress(str);
+  }
+
   public toString(): string {
     return this.value;
   }

@@ -5,7 +5,7 @@ describe('IPv4Address', () => {
   describe('create and isValid', () => {
     it('should create valid IPv4 addresses', () => {
       const valids = ['192.168.1.1', '10.0.0.0', '255.255.255.255', '0.0.0.0'];
-      
+
       for (const ip of valids) {
         const result = IPv4Address.create(ip);
         expect(result.ok).toBe(true);
@@ -17,11 +17,11 @@ describe('IPv4Address', () => {
 
     it('should reject invalid IPv4 addresses', () => {
       const invalids = [
-        '256.0.0.1',      // octet > 255
-        '192.168.1',      // too short
-        '192.168.1.1.1',  // too long
-        '-1.0.0.0',       // negative
-        '192.168.1.a',    // invalid char
+        '256.0.0.1', // octet > 255
+        '192.168.1', // too short
+        '192.168.1.1.1', // too long
+        '-1.0.0.0', // negative
+        '192.168.1.a', // invalid char
         'invalid',
       ];
 

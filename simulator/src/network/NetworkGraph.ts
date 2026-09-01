@@ -18,11 +18,19 @@
  */
 
 import type { DeviceId, InterfaceId, LinkId, NetworkId } from '../types/ids.js';
-import type { Device, DeviceType, Link, Network, NetworkInterface, OperationalStatus } from '../types/domain.js';
+import type {
+  Device,
+  DeviceType,
+  Link,
+  Network,
+  NetworkInterface,
+  OperationalStatus,
+} from '../types/domain.js';
 import { type Result, ok, err } from '../types/errors.js';
 import { IdFactory } from '../types/ids.js';
 import type { EventBus } from '../events/EventBus.js';
 import { MACAddress } from './MACAddress.js';
+import { IPv4Address } from './IPv4Address.js';
 
 // ─── Internal Mutable Device ─────────────────────────────────────────────────
 
@@ -112,8 +120,12 @@ export class NetworkGraph {
     };
   }
 
-  get id(): NetworkId { return this._id; }
-  get name(): string { return this._name; }
+  get id(): NetworkId {
+    return this._id;
+  }
+  get name(): string {
+    return this._name;
+  }
 
   getDevice(id: DeviceId): Device | undefined {
     const d = this._devices.get(id);
@@ -221,6 +233,97 @@ export class NetworkGraph {
     return undefined;
   }
 
+  /**
+   * Lookup device by name.
+   * Returns the first device with the given name, or undefined if not found.
+   */
+  getDeviceByName(name: string): Device | undefined {
+    for (const device of this._devices.values()) {
+      if (device.name === name) {
+        const interfaces = new Map<InterfaceId, NetworkInterface>();
+        for (const [ifId, iface] of device.interfaces) {
+          interfaces.set(ifId, { ...iface });
+        }
+        return { ...device, interfaces };
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Get all devices of a specific type.
+   */
+  getDevicesByType(type: DeviceType): Device[] {
+    const devices: Device[] = [];
+    for (const [id, d] of this._devices) {
+      if (d.type === type) {
+        const interfaces = new Map<InterfaceId, NetworkInterface>();
+        for (const [ifId, iface] of d.interfaces) {
+          interfaces.set(ifId, { ...iface });
+        }
+        devices.push({ ...d, interfaces });
+      }
+    }
+    return devices;
+  }
+
+  /**
+   * Get all routers in the network.
+   */
+  getRouters(): Device[] {
+    return this.getDevicesByType('ROUTER');
+  }
+
+  /**
+   * Get all PCs in the network.
+   */
+  getPcs(): Device[] {
+    return this.getDevicesByType('PC');
+  }
+
+  /**
+   * Get all servers in the network.
+   */
+  getServers(): Device[] {
+    return this.getDevicesByType('SERVER');
+  }
+
+  /**
+   * Get a specific interface from a device.
+   */
+  getInterface(deviceId: DeviceId, interfaceId: InterfaceId): NetworkInterface | undefined {
+    const device = this._devices.get(deviceId);
+    if (!device) return undefined;
+
+    const iface = device.interfaces.get(interfaceId);
+    if (!iface) return undefined;
+
+    return { ...iface };
+  }
+
+  /**
+   * Check if a device has a specific interface.
+   */
+  hasInterface(deviceId: DeviceId, interfaceId: InterfaceId): boolean {
+    const device = this._devices.get(deviceId);
+    if (!device) return false;
+    return device.interfaces.has(interfaceId);
+  }
+
+  /**
+   * Get all interfaces for a device.
+   */
+  getInterfaces(deviceId: DeviceId): NetworkInterface[] {
+    const device = this._devices.get(deviceId);
+    if (!device) return [];
+
+    const interfaces: NetworkInterface[] = [];
+    for (const [ifId, iface] of device.interfaces) {
+      interfaces.push({ ...iface });
+    }
+    return interfaces;
+  }
+
   // ── Mutations ──────────────────────────────────────────────────────────────
 
   addPc(name: string): Result<DeviceId> {
@@ -244,6 +347,13 @@ export class NetworkGraph {
    * Automatically creates a default loopback interface.
    */
   addDevice(name: string, type: DeviceType): Result<DeviceId> {
+    // Check for duplicate device names
+    for (const device of this._devices.values()) {
+      if (device.name === name) {
+        return err('DUPLICATE_ENTITY', `Device with name '${name}' already exists`);
+      }
+    }
+
     const id = IdFactory.device();
     const loopbackId = IdFactory.interface();
 
@@ -351,6 +461,91 @@ export class NetworkGraph {
   }
 
   /**
+   * Set the IPv4 configuration on an interface.
+   *
+   * Validates the IP address using IPv4Address.isValid() from the domain model.
+   * The subnet mask, if provided, is validated the same way.
+   * Subnet calculation belongs to Prompt 6 — this method only stores the value.
+   *
+   * @param deviceId    The owning device.
+   * @param interfaceId The target interface.
+   * @param ipAddress   Dotted-decimal IPv4 address (e.g. "10.0.0.1").
+   * @param subnetMask  Optional dotted-decimal subnet mask (e.g. "255.255.255.0").
+   */
+  setInterfaceIp(
+    deviceId: DeviceId,
+    interfaceId: InterfaceId,
+    ipAddress: string,
+    subnetMask?: string,
+  ): Result<void> {
+    const device = this._devices.get(deviceId);
+    if (!device) {
+      return err('ENTITY_NOT_FOUND', `Device ${deviceId} not found`);
+    }
+
+    const iface = device.interfaces.get(interfaceId);
+    if (!iface) {
+      return err('ENTITY_NOT_FOUND', `Interface ${interfaceId} not found on device ${deviceId}`);
+    }
+
+    if (!IPv4Address.isValid(ipAddress)) {
+      return err('INVALID_IPV4_ADDRESS', `Invalid IPv4 address: ${ipAddress}`);
+    }
+
+    if (subnetMask !== undefined && !IPv4Address.isValid(subnetMask)) {
+      return err('INVALID_IPV4_ADDRESS', `Invalid subnet mask: ${subnetMask}`);
+    }
+
+    iface.ipAddress = ipAddress;
+    iface.subnetMask = subnetMask ?? null;
+
+    this.eventBus.emit({
+      id: IdFactory.event(),
+      type: 'DEVICE_UPDATED',
+      deviceId: deviceId,
+      simulationTime: this._simulationTick,
+      wallClockMs: Date.now(),
+    });
+
+    return ok(undefined);
+  }
+
+  /**
+   * Remove an interface from a device.
+   * Fails if the interface is connected to a link.
+   */
+  removeInterface(deviceId: DeviceId, interfaceId: InterfaceId): Result<void> {
+    const device = this._devices.get(deviceId);
+    if (!device) {
+      return err('ENTITY_NOT_FOUND', `Device ${deviceId} not found`);
+    }
+
+    const iface = device.interfaces.get(interfaceId);
+    if (!iface) {
+      return err('ENTITY_NOT_FOUND', `Interface ${interfaceId} not found on device ${deviceId}`);
+    }
+
+    if (iface.connectedLinkId) {
+      return err(
+        'INVALID_TOPOLOGY',
+        `Cannot remove interface ${interfaceId}: it is connected to a link`,
+      );
+    }
+
+    device.interfaces.delete(interfaceId);
+
+    this.eventBus.emit({
+      id: IdFactory.event(),
+      type: 'DEVICE_UPDATED',
+      deviceId: deviceId,
+      simulationTime: this._simulationTick,
+      wallClockMs: Date.now(),
+    });
+
+    return ok(undefined);
+  }
+
+  /**
    * Connect two interfaces with a new link.
    * Fails if either interface is already connected to another link.
    */
@@ -364,9 +559,12 @@ export class NetworkGraph {
 
     if (!ifaceA) return err('ENTITY_NOT_FOUND', `Interface ${endpointA} not found`);
     if (!ifaceB) return err('ENTITY_NOT_FOUND', `Interface ${endpointB} not found`);
-    if (ifaceA.connectedLinkId) return err('INVALID_TOPOLOGY', `Interface ${endpointA} already connected`);
-    if (ifaceB.connectedLinkId) return err('INVALID_TOPOLOGY', `Interface ${endpointB} already connected`);
-    if (endpointA === endpointB) return err('INVALID_TOPOLOGY', 'Cannot connect interface to itself');
+    if (ifaceA.connectedLinkId)
+      return err('INVALID_TOPOLOGY', `Interface ${endpointA} already connected`);
+    if (ifaceB.connectedLinkId)
+      return err('INVALID_TOPOLOGY', `Interface ${endpointB} already connected`);
+    if (endpointA === endpointB)
+      return err('INVALID_TOPOLOGY', 'Cannot connect interface to itself');
 
     const id = IdFactory.link();
     const link: MutableLink = {
@@ -459,6 +657,44 @@ export class NetworkGraph {
       id: IdFactory.event(),
       type: 'LINK_RECOVERED',
       linkId: id,
+      simulationTime: this._simulationTick,
+      wallClockMs: Date.now(),
+    });
+    return ok(undefined);
+  }
+
+  failInterface(deviceId: DeviceId, interfaceId: InterfaceId): Result<void> {
+    const device = this._devices.get(deviceId);
+    if (!device) return err('ENTITY_NOT_FOUND', `Device ${deviceId} not found`);
+
+    const iface = device.interfaces.get(interfaceId);
+    if (!iface)
+      return err('ENTITY_NOT_FOUND', `Interface ${interfaceId} not found on device ${deviceId}`);
+
+    iface.status = 'DOWN';
+    this.eventBus.emit({
+      id: IdFactory.event(),
+      type: 'DEVICE_UPDATED',
+      deviceId: deviceId,
+      simulationTime: this._simulationTick,
+      wallClockMs: Date.now(),
+    });
+    return ok(undefined);
+  }
+
+  recoverInterface(deviceId: DeviceId, interfaceId: InterfaceId): Result<void> {
+    const device = this._devices.get(deviceId);
+    if (!device) return err('ENTITY_NOT_FOUND', `Device ${deviceId} not found`);
+
+    const iface = device.interfaces.get(interfaceId);
+    if (!iface)
+      return err('ENTITY_NOT_FOUND', `Interface ${interfaceId} not found on device ${deviceId}`);
+
+    iface.status = 'UP';
+    this.eventBus.emit({
+      id: IdFactory.event(),
+      type: 'DEVICE_UPDATED',
+      deviceId: deviceId,
       simulationTime: this._simulationTick,
       wallClockMs: Date.now(),
     });

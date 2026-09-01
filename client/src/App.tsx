@@ -29,19 +29,11 @@ function NetworkCanvasPlaceholder(): React.ReactElement {
   return (
     <div className="flex h-full w-full items-center justify-center">
       <div className="text-center">
-        <div
-          className="mb-4 text-5xl"
-          role="img"
-          aria-label="Network simulator icon"
-        >
+        <div className="mb-4 text-5xl" role="img" aria-label="Network simulator icon">
           🌐
         </div>
-        <h1 className="mb-2 text-2xl font-semibold text-sky-400">
-          Mini Internet
-        </h1>
-        <p className="text-slate-400">
-          Network simulation canvas — Phase 2
-        </p>
+        <h1 className="mb-2 text-2xl font-semibold text-sky-400">Mini Internet</h1>
+        <p className="text-slate-400">Network simulation canvas — Phase 2</p>
         <p className="mt-1 text-xs text-slate-600">
           Foundation phase: architecture established, UI coming in Phase 2.
         </p>
@@ -58,18 +50,14 @@ export default function App(): React.ReactElement {
         <span className="text-sm font-medium text-slate-300">
           Mini Internet — Network Simulator
         </span>
-        <span className="ml-auto text-xs text-slate-600">
-          Foundation Phase v0.1.0
-        </span>
+        <span className="ml-auto text-xs text-slate-600">Foundation Phase v0.1.0</span>
       </header>
 
       {/* ── Main workspace ────────────────────────────────────────── */}
       <main className="flex flex-1 overflow-hidden">
         {/* Left sidebar — device palette (Phase 2) */}
         <aside className="flex w-48 shrink-0 flex-col border-r border-slate-700 p-3">
-          <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
-            Devices
-          </p>
+          <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Devices</p>
           <p className="mt-2 text-xs text-slate-600">Phase 2</p>
         </aside>
 
@@ -80,18 +68,14 @@ export default function App(): React.ReactElement {
 
         {/* Right sidebar — properties panel (Phase 2) */}
         <aside className="flex w-64 shrink-0 flex-col border-l border-slate-700 p-3">
-          <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
-            Properties
-          </p>
+          <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Properties</p>
           <p className="mt-2 text-xs text-slate-600">Phase 2</p>
         </aside>
       </main>
 
       {/* ── Bottom panel — event log (Phase 2) ────────────────────── */}
       <footer className="flex h-32 shrink-0 flex-col border-t border-slate-700 p-3">
-        <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
-          Event Log
-        </p>
+        <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Event Log</p>
         <p className="mt-1 text-xs text-slate-600">Phase 2</p>
       </footer>
     </div>
