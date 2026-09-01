@@ -26,7 +26,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { NetworkGraph } from '../network/NetworkGraph.js';
 import { DeviceFactory } from './DeviceFactory.js';
 import { MACAddress } from '../network/MACAddress.js';
-import { IPv4Address } from '../network/IPv4Address.js';
+import { IPv4Address } from '../network/ipv4/IPv4Address.js';
+import { IPv4Subnet } from '../network/ipv4/IPv4Subnet.js';
 import { EventBus } from '../events/EventBus.js';
 import { IdFactory } from '../types/ids.js';
 import type { DeviceId, InterfaceId } from '../types/ids.js';
@@ -764,7 +765,7 @@ describe('IPv4 Configuration on Interfaces', () => {
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error.code).toBe('INVALID_IPV4_ADDRESS');
+      expect(result.error.code).toBe('INVALID_SUBNET_MASK');
     }
   });
 
@@ -1105,5 +1106,354 @@ describe('Error Handling', () => {
     if (!result.ok) {
       expect(result.error.code).toBe('ENTITY_NOT_FOUND');
     }
+  });
+});
+
+// ─── J. IPv4 / Subnet Engine Integration — Prompt 6 ──────────────────────────
+
+describe('IPv4 / Subnet Engine Integration (Prompt 6)', () => {
+  describe('prefixLength as canonical config', () => {
+    it('setInterfaceIp accepts numeric prefixLength and derives subnetMask', () => {
+      const pc = factory.createPc({ name: 'PC-1' });
+      expect(pc.ok).toBe(true);
+      if (!pc.ok) return;
+
+      const result = graph.setInterfaceIp(pc.value.deviceId, pc.value.eth0Id, '192.168.1.10', 24);
+      expect(result.ok).toBe(true);
+
+      const iface = graph.getInterface(pc.value.deviceId, pc.value.eth0Id);
+      expect(iface!.ipAddress).toBe('192.168.1.10');
+      expect(iface!.prefixLength).toBe(24);
+      expect(iface!.subnetMask).toBe('255.255.255.0');
+    });
+
+    it('setInterfaceIp with dotted mask string derives prefixLength (backward compat)', () => {
+      const pc = factory.createPc({ name: 'PC-1' });
+      expect(pc.ok).toBe(true);
+      if (!pc.ok) return;
+
+      const result = graph.setInterfaceIp(
+        pc.value.deviceId,
+        pc.value.eth0Id,
+        '10.0.0.5',
+        '255.255.0.0',
+      );
+      expect(result.ok).toBe(true);
+
+      const iface = graph.getInterface(pc.value.deviceId, pc.value.eth0Id);
+      expect(iface!.ipAddress).toBe('10.0.0.5');
+      expect(iface!.subnetMask).toBe('255.255.0.0');
+      expect(iface!.prefixLength).toBe(16);
+    });
+
+    it('setInterfaceIp rejects non-contiguous subnet mask', () => {
+      const pc = factory.createPc({ name: 'PC-1' });
+      expect(pc.ok).toBe(true);
+      if (!pc.ok) return;
+
+      const result = graph.setInterfaceIp(
+        pc.value.deviceId,
+        pc.value.eth0Id,
+        '10.0.0.1',
+        '255.0.255.0',
+      );
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.code).toBe('INVALID_SUBNET_MASK');
+    });
+
+    it('setInterfaceIp rejects invalid prefixLength (-1, 33, fractional)', () => {
+      const pc = factory.createPc({ name: 'PC-1' });
+      expect(pc.ok).toBe(true);
+      if (!pc.ok) return;
+
+      const r1 = graph.setInterfaceIp(pc.value.deviceId, pc.value.eth0Id, '10.0.0.1', -1);
+      expect(r1.ok).toBe(false);
+      if (!r1.ok) expect(r1.error.code).toBe('INVALID_PREFIX_LENGTH');
+
+      const r2 = graph.setInterfaceIp(pc.value.deviceId, pc.value.eth0Id, '10.0.0.1', 33);
+      expect(r2.ok).toBe(false);
+      if (!r2.ok) expect(r2.error.code).toBe('INVALID_PREFIX_LENGTH');
+
+      const r3 = graph.setInterfaceIp(pc.value.deviceId, pc.value.eth0Id, '10.0.0.1', 24.5);
+      expect(r3.ok).toBe(false);
+      if (!r3.ok) expect(r3.error.code).toBe('INVALID_PREFIX_LENGTH');
+    });
+  });
+
+  describe('setInterfaceCidr parses CIDR notation', () => {
+    it('accepts valid CIDR "192.168.1.10/24"', () => {
+      const pc = factory.createPc({ name: 'PC-1' });
+      expect(pc.ok).toBe(true);
+      if (!pc.ok) return;
+
+      const r = graph.setInterfaceCidr(pc.value.deviceId, pc.value.eth0Id, '192.168.1.10/24');
+      expect(r.ok).toBe(true);
+
+      const iface = graph.getInterface(pc.value.deviceId, pc.value.eth0Id);
+      expect(iface!.ipAddress).toBe('192.168.1.10');
+      expect(iface!.prefixLength).toBe(24);
+      expect(iface!.subnetMask).toBe('255.255.255.0');
+    });
+
+    it('rejects invalid CIDR strings', () => {
+      const pc = factory.createPc({ name: 'PC-1' });
+      expect(pc.ok).toBe(true);
+      if (!pc.ok) return;
+
+      const noSlash = graph.setInterfaceCidr(pc.value.deviceId, pc.value.eth0Id, '10.0.0.1');
+      expect(noSlash.ok).toBe(false);
+      if (!noSlash.ok) expect(noSlash.error.code).toBe('INVALID_CIDR');
+
+      const badPrefix = graph.setInterfaceCidr(pc.value.deviceId, pc.value.eth0Id, '10.0.0.1/33');
+      expect(badPrefix.ok).toBe(false);
+
+      const badIp = graph.setInterfaceCidr(pc.value.deviceId, pc.value.eth0Id, '256.0.0.1/24');
+      expect(badIp.ok).toBe(false);
+    });
+  });
+
+  describe('Interface Integration: PC with 192.168.1.10/24', () => {
+    it('calculates network and broadcast correctly via helper methods', () => {
+      const pc = factory.createPc({ name: 'PC1' });
+      expect(pc.ok).toBe(true);
+      if (!pc.ok) return;
+
+      graph.setInterfaceIp(pc.value.deviceId, pc.value.eth0Id, '192.168.1.10', 24);
+
+      expect(graph.getInterfaceNetwork(pc.value.deviceId, pc.value.eth0Id)).toBe('192.168.1.0');
+      expect(graph.getInterfaceBroadcast(pc.value.deviceId, pc.value.eth0Id)).toBe('192.168.1.255');
+
+      const subnet = graph.getInterfaceSubnet(pc.value.deviceId, pc.value.eth0Id);
+      expect(subnet).not.toBeNull();
+      expect(subnet!.networkAddress).toBe('192.168.1.0');
+      expect(subnet!.broadcastAddress).toBe('192.168.1.255');
+      expect(subnet!.subnetMask).toBe('255.255.255.0');
+      expect(subnet!.prefixLength).toBe(24);
+    });
+
+    it('validates host correctness: 192.168.1.10 is valid host in /24', () => {
+      const pc = factory.createPc({ name: 'PC1' });
+      expect(pc.ok).toBe(true);
+      if (!pc.ok) return;
+
+      graph.setInterfaceIp(pc.value.deviceId, pc.value.eth0Id, '192.168.1.10', 24);
+      expect(graph.isInterfaceHostValid(pc.value.deviceId, pc.value.eth0Id)).toBe(true);
+    });
+
+    it('loopback interface (127.0.0.1/8) correctly reports network/broadcast', () => {
+      const pc = factory.createPc({ name: 'PC1' });
+      expect(pc.ok).toBe(true);
+      if (!pc.ok) return;
+
+      const lo = pc.value.loopbackId;
+      expect(graph.getInterfaceNetwork(pc.value.deviceId, lo)).toBe('127.0.0.0');
+      expect(graph.getInterfaceBroadcast(pc.value.deviceId, lo)).toBe('127.255.255.255');
+
+      const iface = graph.getInterface(pc.value.deviceId, lo);
+      expect(iface!.prefixLength).toBe(8);
+      expect(iface!.subnetMask).toBe('255.0.0.0');
+    });
+
+    it('unconfigured interface returns null for subnet helpers', () => {
+      const pc = factory.createPc({ name: 'PC1' });
+      expect(pc.ok).toBe(true);
+      if (!pc.ok) return;
+
+      const r = factory.createRouter({ name: 'R1' });
+      if (!r.ok) return;
+      const eth0 = graph.addInterface(r.value.deviceId, 'eth0');
+      if (!eth0.ok) return;
+
+      expect(graph.getInterfaceSubnet(r.value.deviceId, eth0.value)).toBeNull();
+      expect(graph.getInterfaceNetwork(r.value.deviceId, eth0.value)).toBeNull();
+      expect(graph.getInterfaceBroadcast(r.value.deviceId, eth0.value)).toBeNull();
+      expect(graph.isInterfaceHostValid(r.value.deviceId, eth0.value)).toBeNull();
+    });
+  });
+
+  describe('Router Multi-Subnet Test (Prompt 6 §38)', () => {
+    let rid: DeviceId;
+    let eth0Id: InterfaceId;
+    let eth1Id: InterfaceId;
+    let eth2Id: InterfaceId;
+
+    beforeEach(() => {
+      const r = factory.createRouter({ name: 'R1' });
+      expect(r.ok).toBe(true);
+      if (!r.ok) throw new Error('Router creation failed');
+      rid = r.value.deviceId;
+      const e0 = graph.addInterface(rid, 'eth0');
+      const e1 = graph.addInterface(rid, 'eth1');
+      const e2 = graph.addInterface(rid, 'eth2');
+      expect(e0.ok && e1.ok && e2.ok).toBe(true);
+      if (!e0.ok || !e1.ok || !e2.ok) throw new Error('iface');
+      eth0Id = e0.value;
+      eth1Id = e1.value;
+      eth2Id = e2.value;
+    });
+
+    it('eth0 10.0.0.1/24 → network 10.0.0.0 broadcast 10.0.0.255', () => {
+      graph.setInterfaceIp(rid, eth0Id, '10.0.0.1', 24);
+      expect(graph.getInterfaceNetwork(rid, eth0Id)).toBe('10.0.0.0');
+      expect(graph.getInterfaceBroadcast(rid, eth0Id)).toBe('10.0.0.255');
+      const iface = graph.getInterface(rid, eth0Id);
+      expect(iface!.subnetMask).toBe('255.255.255.0');
+      expect(iface!.prefixLength).toBe(24);
+    });
+
+    it('eth1 10.0.1.1/24 → network 10.0.1.0 (different subnet than eth0)', () => {
+      graph.setInterfaceIp(rid, eth0Id, '10.0.0.1', 24);
+      graph.setInterfaceIp(rid, eth1Id, '10.0.1.1', 24);
+      expect(graph.getInterfaceNetwork(rid, eth1Id)).toBe('10.0.1.0');
+      expect(graph.getInterfaceBroadcast(rid, eth1Id)).toBe('10.0.1.255');
+
+      const n0 = graph.getInterfaceNetwork(rid, eth0Id);
+      const n1 = graph.getInterfaceNetwork(rid, eth1Id);
+      expect(n0).not.toBe(n1);
+    });
+
+    it('eth2 192.168.1.1/30 → network 192.168.1.0 broadcast 192.168.1.3', () => {
+      graph.setInterfaceIp(rid, eth2Id, '192.168.1.1', 30);
+      expect(graph.getInterfaceNetwork(rid, eth2Id)).toBe('192.168.1.0');
+      expect(graph.getInterfaceBroadcast(rid, eth2Id)).toBe('192.168.1.3');
+
+      const subnet = graph.getInterfaceSubnet(rid, eth2Id)!;
+      // /30 valid hosts: .1 and .2
+      expect(subnet.isValidHost('192.168.1.1')).toBe(true);
+      expect(subnet.isValidHost('192.168.1.2')).toBe(true);
+      expect(subnet.isValidHost('192.168.1.0')).toBe(false); // network
+      expect(subnet.isValidHost('192.168.1.3')).toBe(false); // broadcast
+    });
+
+    it('all three interfaces compute their subnets independently (no cross-interference)', () => {
+      graph.setInterfaceCidr(rid, eth0Id, '10.0.0.1/24');
+      graph.setInterfaceCidr(rid, eth1Id, '10.0.1.1/24');
+      graph.setInterfaceCidr(rid, eth2Id, '192.168.1.1/30');
+
+      expect(graph.getInterfaceNetwork(rid, eth0Id)).toBe('10.0.0.0');
+      expect(graph.getInterfaceNetwork(rid, eth1Id)).toBe('10.0.1.0');
+      expect(graph.getInterfaceNetwork(rid, eth2Id)).toBe('192.168.1.0');
+
+      // MACs and IDs remain unchanged
+      expect(graph.getInterface(rid, eth0Id)!.name).toBe('eth0');
+      expect(graph.getInterface(rid, eth1Id)!.name).toBe('eth1');
+      expect(graph.getInterface(rid, eth2Id)!.name).toBe('eth2');
+
+      // All IDs distinct
+      expect(eth0Id).not.toBe(eth1Id);
+      expect(eth1Id).not.toBe(eth2Id);
+      expect(eth0Id).not.toBe(eth2Id);
+    });
+  });
+
+  describe('Edge cases: /31 and /32 semantics on interfaces', () => {
+    it('/32 single-address: network = broadcast = address, host is valid', () => {
+      const pc = factory.createPc({ name: 'PC' });
+      expect(pc.ok).toBe(true);
+      if (!pc.ok) return;
+
+      graph.setInterfaceIp(pc.value.deviceId, pc.value.eth0Id, '5.5.5.5', 32);
+      const iface = graph.getInterface(pc.value.deviceId, pc.value.eth0Id);
+      expect(iface!.prefixLength).toBe(32);
+      expect(graph.getInterfaceNetwork(pc.value.deviceId, pc.value.eth0Id)).toBe('5.5.5.5');
+      expect(graph.getInterfaceBroadcast(pc.value.deviceId, pc.value.eth0Id)).toBe('5.5.5.5');
+      expect(graph.isInterfaceHostValid(pc.value.deviceId, pc.value.eth0Id)).toBe(true);
+    });
+
+    it('/31 point-to-point: both addresses are valid hosts', () => {
+      const pc = factory.createPc({ name: 'PC' });
+      expect(pc.ok).toBe(true);
+      if (!pc.ok) return;
+
+      graph.setInterfaceIp(pc.value.deviceId, pc.value.eth0Id, '10.0.0.2', 31);
+      expect(graph.getInterfaceNetwork(pc.value.deviceId, pc.value.eth0Id)).toBe('10.0.0.2');
+      expect(graph.getInterfaceBroadcast(pc.value.deviceId, pc.value.eth0Id)).toBe('10.0.0.3');
+      expect(graph.isInterfaceHostValid(pc.value.deviceId, pc.value.eth0Id)).toBe(true);
+
+      const subnet = graph.getInterfaceSubnet(pc.value.deviceId, pc.value.eth0Id)!;
+      expect(subnet.isValidHost('10.0.0.2')).toBe(true);
+      expect(subnet.isValidHost('10.0.0.3')).toBe(true);
+    });
+  });
+
+  describe('Host validation: /24 network/broadcast NOT valid hosts', () => {
+    it('setting network address (192.168.1.0) correctly flags NOT a host', () => {
+      const pc = factory.createPc({ name: 'PC' });
+      expect(pc.ok).toBe(true);
+      if (!pc.ok) return;
+
+      graph.setInterfaceIp(pc.value.deviceId, pc.value.eth0Id, '192.168.1.0', 24);
+      expect(graph.isInterfaceHostValid(pc.value.deviceId, pc.value.eth0Id)).toBe(false);
+    });
+
+    it('setting broadcast address (192.168.1.255) correctly flags NOT a host', () => {
+      const pc = factory.createPc({ name: 'PC' });
+      expect(pc.ok).toBe(true);
+      if (!pc.ok) return;
+
+      graph.setInterfaceIp(pc.value.deviceId, pc.value.eth0Id, '192.168.1.255', 24);
+      expect(graph.isInterfaceHostValid(pc.value.deviceId, pc.value.eth0Id)).toBe(false);
+    });
+  });
+
+  describe('Changing IP does NOT mutate unrelated fields', () => {
+    it('reassigning IP recalculates subnet, does not change MAC/ID/neighbors', () => {
+      const pc = factory.createPc({ name: 'PC' });
+      expect(pc.ok).toBe(true);
+      if (!pc.ok) return;
+
+      const ifaceBefore = graph.getInterface(pc.value.deviceId, pc.value.eth0Id)!;
+      const macBefore = ifaceBefore.macAddress;
+      const idBefore = ifaceBefore.id;
+
+      graph.setInterfaceIp(pc.value.deviceId, pc.value.eth0Id, '10.0.0.1', 24);
+      graph.setInterfaceIp(pc.value.deviceId, pc.value.eth0Id, '10.0.1.1', 24);
+
+      const ifaceAfter = graph.getInterface(pc.value.deviceId, pc.value.eth0Id)!;
+      expect(ifaceAfter.id).toBe(idBefore);
+      expect(ifaceAfter.macAddress).toBe(macBefore);
+      expect(ifaceAfter.ipAddress).toBe('10.0.1.1');
+      expect(ifaceAfter.prefixLength).toBe(24);
+      expect(graph.getInterfaceNetwork(pc.value.deviceId, pc.value.eth0Id)).toBe('10.0.1.0');
+    });
+  });
+
+  describe('Serialization: derived values are not stored but calculated', () => {
+    it('snapshot contains stored address and prefix; network/broadcast are derived', () => {
+      const pc = factory.createPc({ name: 'PC1' });
+      expect(pc.ok).toBe(true);
+      if (!pc.ok) return;
+
+      graph.setInterfaceIp(pc.value.deviceId, pc.value.eth0Id, '192.168.1.37', 24);
+
+      const snap = graph.snapshot();
+      const snapIface = snap.devices.get(pc.value.deviceId)!.interfaces.get(pc.value.eth0Id)!;
+
+      // Stored fields
+      expect(snapIface.ipAddress).toBe('192.168.1.37');
+      expect(snapIface.prefixLength).toBe(24);
+      expect(snapIface.subnetMask).toBe('255.255.255.0');
+
+      // Derived — calculate fresh from snapshot values
+      const subnetFromSnap = IPv4Subnet.create(snapIface.ipAddress!, snapIface.prefixLength!);
+      expect(subnetFromSnap.ok).toBe(true);
+      if (subnetFromSnap.ok) {
+        expect(subnetFromSnap.value.networkAddress).toBe('192.168.1.0');
+        expect(subnetFromSnap.value.broadcastAddress).toBe('192.168.1.255');
+      }
+    });
+  });
+
+  describe('Determinism: same inputs always give same results', () => {
+    it('192.168.1.37/24 always → network 192.168.1.0, broadcast 192.168.1.255', () => {
+      for (let i = 0; i < 50; i++) {
+        const subnetRes = IPv4Subnet.create('192.168.1.37', 24);
+        expect(subnetRes.ok).toBe(true);
+        if (subnetRes.ok) {
+          expect(subnetRes.value.networkAddress).toBe('192.168.1.0');
+          expect(subnetRes.value.broadcastAddress).toBe('192.168.1.255');
+        }
+      }
+    });
   });
 });

@@ -30,7 +30,8 @@ import { type Result, ok, err } from '../types/errors.js';
 import { IdFactory } from '../types/ids.js';
 import type { EventBus } from '../events/EventBus.js';
 import { MACAddress } from './MACAddress.js';
-import { IPv4Address } from './IPv4Address.js';
+import { IPv4Address } from './ipv4/IPv4Address.js';
+import { IPv4Subnet } from './ipv4/IPv4Subnet.js';
 
 // ─── Internal Mutable Device ─────────────────────────────────────────────────
 
@@ -43,6 +44,7 @@ interface MutableInterface {
   name: string;
   macAddress: string;
   ipAddress: string | null;
+  prefixLength: number | null;
   subnetMask: string | null;
   status: OperationalStatus;
   connectedLinkId: LinkId | null;
@@ -363,6 +365,7 @@ export class NetworkGraph {
       name: 'lo',
       macAddress: '00:00:00:00:00:00',
       ipAddress: '127.0.0.1',
+      prefixLength: 8,
       subnetMask: '255.0.0.0',
       status: 'UP',
       connectedLinkId: null,
@@ -451,6 +454,7 @@ export class NetworkGraph {
       name,
       macAddress: finalMacAddress,
       ipAddress: null,
+      prefixLength: null,
       subnetMask: null,
       status: 'UP',
       connectedLinkId: null,
@@ -463,20 +467,21 @@ export class NetworkGraph {
   /**
    * Set the IPv4 configuration on an interface.
    *
-   * Validates the IP address using IPv4Address.isValid() from the domain model.
-   * The subnet mask, if provided, is validated the same way.
-   * Subnet calculation belongs to Prompt 6 — this method only stores the value.
+   * Canonical form: ipAddress + prefixLength (number 0–32). Subnet mask is derived.
+   * Backward-compat form: ipAddress + subnetMask (dotted-decimal "255.255.255.0"). Prefix length is derived from mask.
    *
-   * @param deviceId    The owning device.
-   * @param interfaceId The target interface.
-   * @param ipAddress   Dotted-decimal IPv4 address (e.g. "10.0.0.1").
-   * @param subnetMask  Optional dotted-decimal subnet mask (e.g. "255.255.255.0").
+   * The fourth argument maskOrPrefix parameter:
+   *   - number → treated as prefix length (e.g., 24 → /24)
+   *   - string → treated as dotted-decimal subnet mask (e.g., "255.255.255.0")
+   *   - omitted/undefined → only the address is set, but prefixLength/subnetMask remain null
+   *
+   * Validation errors: INVALID_IPV4_ADDRESS, INVALID_PREFIX_LENGTH, INVALID_SUBNET_MASK
    */
   setInterfaceIp(
     deviceId: DeviceId,
     interfaceId: InterfaceId,
     ipAddress: string,
-    subnetMask?: string,
+    maskOrPrefix?: string | number,
   ): Result<void> {
     const device = this._devices.get(deviceId);
     if (!device) {
@@ -492,12 +497,35 @@ export class NetworkGraph {
       return err('INVALID_IPV4_ADDRESS', `Invalid IPv4 address: ${ipAddress}`);
     }
 
-    if (subnetMask !== undefined && !IPv4Address.isValid(subnetMask)) {
-      return err('INVALID_IPV4_ADDRESS', `Invalid subnet mask: ${subnetMask}`);
+    let finalPrefixLength: number | null = null;
+    let finalSubnetMask: string | null = null;
+
+    if (maskOrPrefix !== undefined) {
+      if (typeof maskOrPrefix === 'number') {
+        if (!IPv4Address.isValidPrefix(maskOrPrefix)) {
+          return err('INVALID_PREFIX_LENGTH', `Invalid prefix length: ${maskOrPrefix}`);
+        }
+        finalPrefixLength = maskOrPrefix;
+        finalSubnetMask = IPv4Address.intToIp(IPv4Subnet.prefixToMaskInt(finalPrefixLength));
+      } else {
+        if (!IPv4Address.isValid(maskOrPrefix)) {
+          return err('INVALID_SUBNET_MASK', `Invalid subnet mask: ${maskOrPrefix}`);
+        }
+        const derivedPrefix = IPv4Subnet.maskToPrefixLength(maskOrPrefix);
+        if (derivedPrefix === null) {
+          return err(
+            'INVALID_SUBNET_MASK',
+            `Non-contiguous or invalid subnet mask: ${maskOrPrefix}`,
+          );
+        }
+        finalPrefixLength = derivedPrefix;
+        finalSubnetMask = maskOrPrefix;
+      }
     }
 
     iface.ipAddress = ipAddress;
-    iface.subnetMask = subnetMask ?? null;
+    iface.prefixLength = finalPrefixLength;
+    iface.subnetMask = finalSubnetMask;
 
     this.eventBus.emit({
       id: IdFactory.event(),
@@ -508,6 +536,66 @@ export class NetworkGraph {
     });
 
     return ok(undefined);
+  }
+
+  /**
+   * Set interface IPv4 configuration from a CIDR string "192.168.1.10/24".
+   * Parses and validates both the address and prefix length together.
+   */
+  setInterfaceCidr(deviceId: DeviceId, interfaceId: InterfaceId, cidr: string): Result<void> {
+    const cidrRes = IPv4Subnet.fromCidr(cidr);
+    if (!cidrRes.ok) return err(cidrRes.error.code, cidrRes.error.message, cidrRes.error.context);
+    return this.setInterfaceIp(
+      deviceId,
+      interfaceId,
+      cidrRes.value.ip,
+      cidrRes.value.subnet.prefixLength,
+    );
+  }
+
+  /**
+   * Returns an IPv4Subnet object for the given interface if it has a valid IP + prefix.
+   * Returns null if the interface has no IP or no prefix configured.
+   */
+  getInterfaceSubnet(deviceId: DeviceId, interfaceId: InterfaceId): IPv4Subnet | null {
+    const device = this._devices.get(deviceId);
+    if (!device) return null;
+    const iface = device.interfaces.get(interfaceId);
+    if (!iface || !iface.ipAddress || iface.prefixLength === null) return null;
+    const res = IPv4Subnet.create(iface.ipAddress, iface.prefixLength);
+    return res.ok ? res.value : null;
+  }
+
+  /**
+   * Returns the network address for an interface's IP/prefix (e.g., "192.168.1.0").
+   * Returns null if the interface is not fully configured.
+   */
+  getInterfaceNetwork(deviceId: DeviceId, interfaceId: InterfaceId): string | null {
+    const subnet = this.getInterfaceSubnet(deviceId, interfaceId);
+    return subnet ? subnet.networkAddress : null;
+  }
+
+  /**
+   * Returns the broadcast address for an interface's IP/prefix (e.g., "192.168.1.255").
+   * Returns null if the interface is not fully configured.
+   */
+  getInterfaceBroadcast(deviceId: DeviceId, interfaceId: InterfaceId): string | null {
+    const subnet = this.getInterfaceSubnet(deviceId, interfaceId);
+    return subnet ? subnet.broadcastAddress : null;
+  }
+
+  /**
+   * Returns true if the interface has a valid IP/prefix and the configured IP is a valid
+   * host address within that subnet (not network/broadcast except for /31 and /32).
+   * Returns null if the interface is not fully configured.
+   */
+  isInterfaceHostValid(deviceId: DeviceId, interfaceId: InterfaceId): boolean | null {
+    const device = this._devices.get(deviceId);
+    if (!device) return null;
+    const iface = device.interfaces.get(interfaceId);
+    if (!iface || !iface.ipAddress || iface.prefixLength === null) return null;
+    const subnet = this.getInterfaceSubnet(deviceId, interfaceId);
+    return subnet ? subnet.isValidHost(iface.ipAddress) : null;
   }
 
   /**
