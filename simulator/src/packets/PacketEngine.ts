@@ -36,6 +36,55 @@ import type { PacketDropReason } from './PacketDropReason.js';
 import { IPv4Address } from '../network/ipv4/IPv4Address.js';
 import { IdFactory } from '../types/ids.js';
 
+// ─── TTL Helper Functions ─────────────────────────────────────────────────────
+
+/**
+ * Result of a TTL decrement operation.
+ */
+interface TTLDecrementResult {
+  /** The packet with decremented TTL */
+  readonly packet: Packet;
+  /** Whether the TTL has expired (reached 0) */
+  readonly expired: boolean;
+}
+
+/**
+ * Decrement TTL for a packet at a router.
+ *
+ * This function:
+ * 1. Validates the packet state
+ * 2. Decrements TTL exactly once
+ * 3. Determines if TTL has expired
+ * 4. Returns the updated packet and expiration status
+ *
+ * Only routers should call this function. PCs and servers do not decrement TTL.
+ */
+function decrementTTL(packet: Packet): Result<TTLDecrementResult> {
+  // Validate packet is in a state that allows forwarding
+  if (packet.state !== 'QUEUED' && packet.state !== 'FORWARDED') {
+    return err(
+      'SIMULATION_STATE_ERROR',
+      `Cannot decrement TTL: packet is in ${packet.state} state, expected QUEUED or FORWARDED`,
+    );
+  }
+
+  const newTTL = packet.ttl - 1;
+
+  // TTL expired
+  if (newTTL <= 0) {
+    return ok({
+      packet: { ...packet, ttl: 0 },
+      expired: true,
+    });
+  }
+
+  // TTL still valid
+  return ok({
+    packet: { ...packet, ttl: newTTL },
+    expired: false,
+  });
+}
+
 // ─── Packet Engine ─────────────────────────────────────────────────────────────
 
 /**
@@ -157,6 +206,11 @@ export class PacketEngine {
    *   QUEUED    → FORWARDED  (reason='forward')   — first hop
    *   FORWARDED → FORWARDED  (reason='forward')   — subsequent hops
    *
+   * TTL Logic:
+   *   - If current device is a ROUTER, decrement TTL before forwarding
+   *   - If TTL expires (reaches 0), drop packet with TTL_EXPIRED reason
+   *   - PCs and Servers do NOT decrement TTL
+   *
    * Validates:
    * - Packet exists
    * - State machine allows QUEUED→FORWARDED or FORWARDED→FORWARDED
@@ -174,9 +228,49 @@ export class PacketEngine {
       return err('ENTITY_NOT_FOUND', `Packet ${packetId} not found`);
     }
 
-    const stateResult = transitionPacket(packet, 'FORWARDED', {
+    // Check if current device is a router for TTL decrement
+    const currentDevice = this.graph.getDevice(packet.currentLocation);
+    if (!currentDevice) {
+      return err(
+        'ENTITY_UNAVAILABLE',
+        `Current location ${packet.currentLocation} no longer exists`,
+      );
+    }
+
+    let workingPacket = packet;
+
+    // Decrement TTL if current device is a router
+    if (currentDevice.type === 'ROUTER') {
+      const ttlResult = decrementTTL(workingPacket);
+      if (!ttlResult.ok) {
+        return err(
+          ttlResult.error.code as SimulatorErrorCode,
+          ttlResult.error.message,
+          ttlResult.error.context,
+        );
+      }
+
+      // If TTL expired, drop the packet and return error
+      if (ttlResult.value.expired) {
+        this.packets.set(packetId, ttlResult.value.packet);
+        const dropResult = this.dropPacket(packetId, 'TTL_EXPIRED');
+        if (!dropResult.ok) {
+          return dropResult;
+        }
+        // Return error to indicate forward failed due to TTL expiration
+        return err('TTL_EXPIRED', 'Packet TTL expired during forwarding');
+      }
+
+      // TTL still valid, continue with decremented TTL
+      workingPacket = ttlResult.value.packet;
+    } else {
+      // For non-routers, preserve original TTL
+      workingPacket = { ...workingPacket };
+    }
+
+    const stateResult = transitionPacket(workingPacket, 'FORWARDED', {
       reason: 'forward',
-      atDeviceId: packet.currentLocation,
+      atDeviceId: workingPacket.currentLocation,
     });
 
     if (!stateResult.ok) {
@@ -187,35 +281,29 @@ export class PacketEngine {
       );
     }
 
-    if (!this.graph.hasDevice(packet.currentLocation)) {
-      return err(
-        'ENTITY_UNAVAILABLE',
-        `Current location ${packet.currentLocation} no longer exists`,
-      );
-    }
-
     if (!this.graph.hasDevice(nextHopDeviceId)) {
       return err('ENTITY_NOT_FOUND', `Next hop device ${nextHopDeviceId} not found`);
     }
 
-    const link = this.graph.getLinkBetween(packet.currentLocation, nextHopDeviceId);
+    const link = this.graph.getLinkBetween(workingPacket.currentLocation, nextHopDeviceId);
     if (!link) {
       return err(
         'INVALID_ROUTE',
-        `No link exists between current location ${packet.currentLocation} and next hop ${nextHopDeviceId}`,
+        `No link exists between current location ${workingPacket.currentLocation} and next hop ${nextHopDeviceId}`,
       );
     }
 
     if (link.status !== 'UP') {
       return err(
         'ENTITY_UNAVAILABLE',
-        `Link between ${packet.currentLocation} and ${nextHopDeviceId} is not UP`,
+        `Link between ${workingPacket.currentLocation} and ${nextHopDeviceId} is not UP`,
       );
     }
 
-    const updatedHistory = [...packet.history, nextHopDeviceId];
+    const updatedHistory = [...workingPacket.history, nextHopDeviceId];
     const forwardedPacket: Packet = {
       ...stateResult.value,
+      ttl: workingPacket.ttl, // Preserve the decremented TTL from workingPacket
       currentLocation: nextHopDeviceId,
       history: updatedHistory,
     };

@@ -42,7 +42,7 @@ import type { PacketState, PacketLifecycleTransition } from './PacketStateMachin
  * IMMUTABLE FIELDS (never change after creation):
  *   - id, sourceDeviceId, destinationDeviceId, sourceIp, destinationIp,
  *     payload, createdAt, metadata (contents of metadata may be mutated by
- *     owners, but the metadata reference itself stays).
+ *     owners, but the metadata reference itself stays), ttl.
  *
  * CONTROLLED-MUTATION FIELDS (only via PacketEngine → transitionPacket()):
  *   - state                 (controlled by PacketStateMachine)
@@ -68,6 +68,13 @@ export interface Packet {
 
   /** Packet payload (string for educational simulator). IMMUTABLE. */
   readonly payload: string;
+
+  /**
+   * Time-to-live: remaining hop allowance for the packet.
+   * Decremented by routers on each forward. IMMUTABLE after creation.
+   * Default is 64. When TTL reaches 0, packet is dropped with TTL_EXPIRED.
+   */
+  readonly ttl: number;
 
   /**
    * Current device location.
@@ -101,7 +108,7 @@ export interface Packet {
   /** Creation timestamp (wall-clock ms, informational only). */
   readonly createdAt: number;
 
-  /** Extensible metadata for future features (TTL, QoS, interface-level addressing, etc.) */
+  /** Extensible metadata for future features (QoS, interface-level addressing, etc.) */
   readonly metadata?: Record<string, unknown>;
 }
 
@@ -126,6 +133,12 @@ export interface CreatePacketOptions {
   /** Packet payload */
   readonly payload: string;
 
+  /**
+   * Time-to-live for the packet. Defaults to 64 if not provided.
+   * Must be a non-negative integer. Used for testing edge cases.
+   */
+  readonly ttl?: number;
+
   /** Optional metadata for future extensibility */
   readonly metadata?: Record<string, unknown>;
 }
@@ -141,11 +154,32 @@ export interface CreatePacketOptions {
  *   2. currentLocation = sourceDeviceId
  *   3. history     = [sourceDeviceId]
  *   4. lifecycleHistory = []   (CREATED is implicit, no transition entry yet)
+ *   5. ttl         = 64 (default) or validated custom value
  */
 export class PacketFactory {
+  /**
+   * Validate TTL value.
+   * Must be a non-negative integer. Rejects negative, NaN, fractional, and Infinity.
+   */
+  private static validateTTL(ttl: number): void {
+    if (!Number.isFinite(ttl)) {
+      throw new Error(`TTL must be finite, got ${ttl}`);
+    }
+    if (!Number.isInteger(ttl)) {
+      throw new Error(`TTL must be an integer, got ${ttl}`);
+    }
+    if (ttl < 0) {
+      throw new Error(`TTL must be non-negative, got ${ttl}`);
+    }
+  }
+
   static create(options: CreatePacketOptions, idGenerator: () => PacketId): Packet {
     const packetId = idGenerator();
     const now = Date.now();
+
+    // Validate and set TTL (default to 64)
+    const ttl = options.ttl ?? 64;
+    this.validateTTL(ttl);
 
     const basePacket: Omit<Packet, 'metadata'> = {
       id: packetId,
@@ -154,6 +188,7 @@ export class PacketFactory {
       sourceIp: options.sourceIp,
       destinationIp: options.destinationIp,
       payload: options.payload,
+      ttl: ttl,
       currentLocation: options.sourceDeviceId,
       state: 'CREATED',
       history: [options.sourceDeviceId],

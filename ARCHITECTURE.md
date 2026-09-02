@@ -152,6 +152,7 @@ interface Packet {
   readonly sourceIp: string;
   readonly destinationIp: string;
   readonly payload: string;
+  readonly ttl: number;  // Time-to-live, default 64
   currentLocation: DeviceId;
   state: PacketState;
   readonly history: DeviceId[];
@@ -167,10 +168,95 @@ interface Packet {
 - **No routing logic**: PacketEngine validates next hops but does NOT calculate routes. Route calculation is the responsibility of future routing algorithms.
 - **Topology respect**: All forwarding validated against NetworkGraph
 - **Local delivery support**: Source = destination is allowed for valid local communication. When delivering a QUEUED packet already at the destination, the engine transparently promotes QUEUED→FORWARDED then FORWARDED→DELIVERED so the formal state-machine table remains strict.
-- **Extensibility**: Metadata field for future features (TTL, interface-level addressing, QoS)
+- **Extensibility**: Metadata field for future features (interface-level addressing, QoS)
 - **Separate history concepts**:
   - `history` = ordered device-traversal path (location hops)
   - `lifecycleHistory` = ordered state-machine transitions (audit trail)
+
+### TTL (Time To Live)
+
+**File**: `src/packets/Packet.ts`, `src/packets/PacketEngine.ts`
+
+Time-to-live implementation for packet lifetime management during network traversal.
+
+**Responsibilities**:
+
+- Set default TTL to 64 on packet creation
+- Validate TTL values (must be non-negative integers)
+- Decrement TTL on router forwarding hops
+- Drop packets with TTL_EXPIRED reason when TTL reaches 0
+- Preserve packet identity through TTL changes
+
+**TTL Field**:
+
+```typescript
+interface Packet {
+  readonly ttl: number;  // Default 64, immutable after creation
+}
+```
+
+**Router Decrement Semantics**:
+
+- Only ROUTER device types decrement TTL
+- PCs and Servers do NOT decrement TTL
+- TTL decrements exactly once per router hop
+- TTL is never reset during packet lifetime
+
+**Expiration Behavior**:
+
+```
+TTL = 1 at router
+   ↓
+Decrement to 0
+   ↓
+Packet dropped with TTL_EXPIRED
+   ↓
+State becomes DROPPED
+```
+
+**TTL Flow Example**:
+
+```
+Packet (TTL = 64)
+   |
+   | TTL = 64
+   ↓
+PC1 (non-router)
+   |
+   | TTL = 64 (unchanged)
+   ↓
+Router 1
+   |
+   | TTL = 63 (decremented)
+   ↓
+Router 2
+   |
+   | TTL = 62 (decremented)
+   ↓
+Destination
+```
+
+**TTL Validation**:
+
+- TTL must be a non-negative integer
+- Rejects negative values, NaN, fractional numbers, and Infinity
+- Custom TTL can be set via packet creation options (for testing)
+
+**Lifecycle Integration**:
+
+TTL expiration uses the existing packet lifecycle:
+- Expired packets transition to DROPPED state
+- Drop reason is TTL_EXPIRED (structured, not generic error)
+- Terminal state immutability prevents resurrection
+- TTL is recorded in packet metadata for inspection
+
+**Key Design Rules**:
+
+- TTL is immutable after creation (packet identity principle)
+- Only routers decrement TTL, not PCs or servers
+- TTL = 0 means expired, packet is dropped before forwarding
+- TTL does not influence routing decisions (deferred to future prompts)
+- TTL survives JSON serialization and reconstruction
 
 **Separation from Routing**: PacketEngine ≠ RoutingEngine. The packet engine answers "Given the next hop, can the packet be forwarded?" while routing engines answer "Which route is best?"
 
@@ -381,7 +467,7 @@ This separation enables:
 - Packet registry (active/completed)
 - NetworkGraph topology validation
 
-### Phase 4: Packet Lifecycle ✅ (Current)
+### Phase 4: Packet Lifecycle ✅
 
 - Formal 5-state machine: CREATED → QUEUED → FORWARDED → (DELIVERED | DROPPED)
 - Authoritative transition table — no uncontrolled `packet.state` assignment
@@ -389,16 +475,22 @@ This separation enables:
 - Terminal-state immutability (DELIVERED and DROPPED never transition again)
 - Append-only `lifecycleHistory` audit trail per packet (from / to / reason / ordinal / atDeviceId)
 - Validated transitions: 5×5 matrix — every invalid combination rejected with `SIMULATION_STATE_ERROR`
-- Structured transition reasons (`send`, `forward`, `destination_reached`, `invalid_route`, `unreachable`, `no_route_to_host`, `invalid_packet`, `ttl_expired` reserved, `other`)
+- Structured transition reasons (`send`, `forward`, `destination_reached`, `invalid_route`, `unreachable`, `no_route_to_host`, `invalid_packet`, `ttl_expired`, `other`)
 - PacketEngine fully integrated (all five lifecycle methods route through the state machine)
 - Immutable packet identity across every transition (id / source / destination / payload / createdAt)
 - Full state-machine test suite + PacketEngine integration tests updated
 
-### Phase 5: TTL (Planned)
+### Phase 5: TTL ✅
 
-- Time-to-live implementation
-- TTL decrement on forwarding
-- TTL_EXPIRED drop reason
+- Time-to-live implementation with default TTL = 64
+- TTL field added to Packet domain model
+- TTL validation (non-negative integers only)
+- Router-only decrement semantics (PCs and servers do not decrement)
+- TTL_EXPIRED drop reason integration with lifecycle state machine
+- Centralized TTL decrement helper function
+- Comprehensive TTL test suite (default, custom, validation, decrement, expiration, independence)
+- TTL survives JSON serialization
+- Architecture documentation updated with TTL section
 
 ### Phase 6: Routing (Planned)
 

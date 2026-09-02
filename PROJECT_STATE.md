@@ -9,25 +9,25 @@ Completed:
 ✓ IPv4/subnet engine
 ✓ Packet engine
 ✓ Packet lifecycle
+✓ TTL
 
 Current:
-Packet lifecycle formalized (Prompt 8) with:
+TTL implementation (Prompt 9) with:
 
-- Formal 5-state packet state machine: CREATED → QUEUED → FORWARDED → DELIVERED/DROPPED
-- Centralized transition authority via `transitionPacket()` — no uncontrolled state mutation
-- Allowed transition table: CREATED→{QUEUED}; QUEUED→{FORWARDED,DROPPED}; FORWARDED→{FORWARDED,DELIVERED,DROPPED}; DELIVERED/DROPPED terminal
-- Terminal immutability enforced (DELIVERED and DROPPED never transition again)
-- Invalid transition rejection with SIMULATION_STATE_ERROR for all forbidden paths
-- Append-only lifecycleHistory audit trail per packet (from/to/reason/ordinal/atDeviceId)
-- Separation of state vs currentLocation vs history (location traversal) vs lifecycleHistory (state transitions)
-- PacketEngine integrated (createPacket/sendPacket/forwardPacket/deliverPacket/dropPacket all route through state machine)
-- Transparent QUEUED→FORWARDED promotion during local delivery (preserves formal table)
-- Structured transition reasons: send / forward / destination_reached / invalid_route / unreachable / no_route_to_host / invalid_packet / ttl_expired (reserved) / other
-- Immutable identity on every transition (packet.id, source*, destination*, payload, createdAt never change)
-- Defensive copies on all getters for registry lookups
-- Full PacketStateMachine.test.ts suite (valid transitions, 5x5 invalid matrix, terminal immutability, multi-hop audit, multi-packet independence, drop preservation, serialization+rehydration, identity immutability, metadata)
-- PacketEngine.test.ts updated to 5-state model with lifecycle history assertions
-- Public exports from @mini-internet/simulator expose PACKET_STATES, ALLOWED_TRANSITIONS, TERMINAL_STATES, helpers, and types
+- TTL field added to Packet domain model with default value of 64
+- TTL validation: rejects negative, NaN, fractional, and Infinity values
+- Custom TTL support via packet creation options (for testing edge cases)
+- Router-only decrement semantics: only ROUTER device types decrement TTL
+- PCs and Servers do NOT decrement TTL (non-router devices)
+- Centralized TTL decrement helper function with validation
+- TTL expiration: when TTL reaches 0, packet is dropped with TTL_EXPIRED reason
+- TTL_EXPIRED integrated with existing packet lifecycle state machine
+- Packet identity preserved through TTL changes (same packet ID, decremented TTL)
+- TTL survives JSON serialization and reconstruction
+- Comprehensive TTL test suite (default TTL, custom TTL, validation, router decrement, non-router behavior, TTL=1 expiration, TTL=2 expiration, TTL=64 survival, no reset behavior, dropped packet protection, packet independence, serialization, drop reason, identity preservation)
+- Architecture documentation updated with TTL section (semantics, validation, expiration, lifecycle integration, diagrams)
+- Error codes updated to include TTL_EXPIRED
+- All existing packet tests passing with TTL integration
 
 Packet engine complete with:
 
@@ -59,7 +59,6 @@ IPv4 / subnet engine complete with:
 
 Not yet implemented:
 
-- TTL implementation (Prompt 9)
 - Routing algorithms (BFS, Dijkstra) (Prompt 10)
 - Routing tables
 - Dynamic routing (Distance Vector / Link State)

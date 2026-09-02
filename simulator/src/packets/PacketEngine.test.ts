@@ -1348,6 +1348,497 @@ describe('PacketEngine', () => {
     });
   });
 
+  // ── TTL Tests ─────────────────────────────────────────────────────────────────
+
+  describe('TTL (Time To Live)', () => {
+    it('default TTL is 64 on packet creation', () => {
+      const { pc1, server1 } = setupSimpleNetwork();
+
+      const result = packetEngine.createPacket({
+        sourceDeviceId: pc1,
+        destinationDeviceId: server1,
+        sourceIp: '192.168.1.10',
+        destinationIp: '10.0.1.10',
+        payload: 'Test',
+      });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.ttl).toBe(64);
+      }
+    });
+
+    it('custom TTL can be set via options', () => {
+      const { pc1, server1 } = setupSimpleNetwork();
+
+      const result = packetEngine.createPacket({
+        sourceDeviceId: pc1,
+        destinationDeviceId: server1,
+        sourceIp: '192.168.1.10',
+        destinationIp: '10.0.1.10',
+        payload: 'Test',
+        ttl: 10,
+      });
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.ttl).toBe(10);
+      }
+    });
+
+    it('rejects negative TTL', () => {
+      const { pc1, server1 } = setupSimpleNetwork();
+
+      expect(() => {
+        packetEngine.createPacket({
+          sourceDeviceId: pc1,
+          destinationDeviceId: server1,
+          sourceIp: '192.168.1.10',
+          destinationIp: '10.0.1.10',
+          payload: 'Test',
+          ttl: -1,
+        });
+      }).toThrow('TTL must be non-negative');
+    });
+
+    it('rejects fractional TTL', () => {
+      const { pc1, server1 } = setupSimpleNetwork();
+
+      expect(() => {
+        packetEngine.createPacket({
+          sourceDeviceId: pc1,
+          destinationDeviceId: server1,
+          sourceIp: '192.168.1.10',
+          destinationIp: '10.0.1.10',
+          payload: 'Test',
+          ttl: 3.5,
+        });
+      }).toThrow('TTL must be an integer');
+    });
+
+    it('rejects NaN TTL', () => {
+      const { pc1, server1 } = setupSimpleNetwork();
+
+      expect(() => {
+        packetEngine.createPacket({
+          sourceDeviceId: pc1,
+          destinationDeviceId: server1,
+          sourceIp: '192.168.1.10',
+          destinationIp: '10.0.1.10',
+          payload: 'Test',
+          ttl: NaN,
+        });
+      }).toThrow('TTL must be finite');
+    });
+
+    it('rejects Infinity TTL', () => {
+      const { pc1, server1 } = setupSimpleNetwork();
+
+      expect(() => {
+        packetEngine.createPacket({
+          sourceDeviceId: pc1,
+          destinationDeviceId: server1,
+          sourceIp: '192.168.1.10',
+          destinationIp: '10.0.1.10',
+          payload: 'Test',
+          ttl: Infinity,
+        });
+      }).toThrow('TTL must be finite');
+    });
+
+    it('first router hop decrements TTL from 64 to 63', () => {
+      const { pc1, r1, server1 } = setupSimpleNetwork();
+
+      const createResult = packetEngine.createPacket({
+        sourceDeviceId: pc1,
+        destinationDeviceId: server1,
+        sourceIp: '192.168.1.10',
+        destinationIp: '10.0.1.10',
+        payload: 'Test',
+      });
+
+      expect(createResult.ok).toBe(true);
+      if (!createResult.ok) return;
+
+      packetEngine.sendPacket(createResult.value.id);
+      packetEngine.forwardPacket(createResult.value.id, r1);
+      // At this point, packet is at R1, TTL should still be 64 (PC1 is not a router)
+      expect(packetEngine.getPacket(createResult.value.id)?.ttl).toBe(64);
+
+      // Forward from R1 to Server1, R1 is a router so TTL should decrement
+      packetEngine.forwardPacket(createResult.value.id, server1);
+      expect(packetEngine.getPacket(createResult.value.id)?.ttl).toBe(63);
+    });
+
+    it('two router hops decrement TTL: 64 → 63 → 62', () => {
+      const { pc1, r1, r2, server1 } = setupMultiHopNetwork();
+
+      const createResult = packetEngine.createPacket({
+        sourceDeviceId: pc1,
+        destinationDeviceId: server1,
+        sourceIp: '192.168.1.10',
+        destinationIp: '10.0.1.10',
+        payload: 'Test',
+      });
+
+      expect(createResult.ok).toBe(true);
+      if (!createResult.ok) return;
+
+      packetEngine.sendPacket(createResult.value.id);
+      // PC1 -> R1: PC1 is not a router, TTL stays 64
+      packetEngine.forwardPacket(createResult.value.id, r1);
+      expect(packetEngine.getPacket(createResult.value.id)?.ttl).toBe(64);
+
+      // R1 -> R2: R1 is a router, TTL decrements to 63
+      packetEngine.forwardPacket(createResult.value.id, r2);
+      expect(packetEngine.getPacket(createResult.value.id)?.ttl).toBe(63);
+
+      // R2 -> Server1: R2 is a router, TTL decrements to 62
+      packetEngine.forwardPacket(createResult.value.id, server1);
+      expect(packetEngine.getPacket(createResult.value.id)?.ttl).toBe(62);
+    });
+
+    it('PC to PC hop does NOT decrement TTL (non-router)', () => {
+      const pc1 = graph.addPc('PC1');
+      const pc2 = graph.addPc('PC2');
+
+      expect(pc1.ok && pc2.ok).toBe(true);
+      if (!pc1.ok || !pc2.ok) return;
+
+      const pc1Eth0 = Array.from(graph.getDevice(pc1.value)!.interfaces.values()).find(
+        (i) => i.name === 'eth0',
+      )!;
+      const pc2Eth0 = Array.from(graph.getDevice(pc2.value)!.interfaces.values()).find(
+        (i) => i.name === 'eth0',
+      )!;
+
+      graph.addLink(pc1Eth0.id, pc2Eth0.id);
+
+      const createResult = packetEngine.createPacket({
+        sourceDeviceId: pc1.value,
+        destinationDeviceId: pc2.value,
+        sourceIp: '192.168.1.10',
+        destinationIp: '192.168.1.11',
+        payload: 'Test',
+      });
+
+      expect(createResult.ok).toBe(true);
+      if (!createResult.ok) return;
+
+      packetEngine.sendPacket(createResult.value.id);
+      packetEngine.forwardPacket(createResult.value.id, pc2.value);
+
+      const packet = packetEngine.getPacket(createResult.value.id);
+      expect(packet?.ttl).toBe(64); // Should still be 64, not decremented
+    });
+
+    it('TTL = 1: decrement to 0, packet dropped with TTL_EXPIRED', () => {
+      const { pc1, r1, server1 } = setupSimpleNetwork();
+
+      const createResult = packetEngine.createPacket({
+        sourceDeviceId: pc1,
+        destinationDeviceId: server1,
+        sourceIp: '192.168.1.10',
+        destinationIp: '10.0.1.10',
+        payload: 'Test',
+        ttl: 1,
+      });
+
+      expect(createResult.ok).toBe(true);
+      if (!createResult.ok) return;
+
+      packetEngine.sendPacket(createResult.value.id);
+
+      // PC1 -> R1: PC1 is not a router, TTL stays 1
+      packetEngine.forwardPacket(createResult.value.id, r1);
+      expect(packetEngine.getPacket(createResult.value.id)?.ttl).toBe(1);
+
+      // R1 -> Server1: R1 is a router, TTL 1 → 0 (expired)
+      const forwardResult = packetEngine.forwardPacket(createResult.value.id, server1);
+      expect(forwardResult.ok).toBe(false);
+      if (!forwardResult.ok) {
+        expect(forwardResult.error.code).toBe('TTL_EXPIRED');
+      }
+
+      const packet = packetEngine.getPacket(createResult.value.id);
+      expect(packet?.state).toBe('DROPPED');
+      expect(packet?.ttl).toBe(0);
+
+      const lastTransition = packet?.lifecycleHistory[packet.lifecycleHistory.length - 1];
+      expect(lastTransition?.reason).toBe('ttl_expired');
+    });
+
+    it('TTL = 2: packet expires at second router', () => {
+      const { pc1, r1, r2, server1 } = setupMultiHopNetwork();
+
+      const createResult = packetEngine.createPacket({
+        sourceDeviceId: pc1,
+        destinationDeviceId: server1,
+        sourceIp: '192.168.1.10',
+        destinationIp: '10.0.1.10',
+        payload: 'Test',
+        ttl: 2,
+      });
+
+      expect(createResult.ok).toBe(true);
+      if (!createResult.ok) return;
+
+      packetEngine.sendPacket(createResult.value.id);
+
+      // First hop: PC1 -> R1, PC1 is not a router, TTL stays 2
+      packetEngine.forwardPacket(createResult.value.id, r1);
+      expect(packetEngine.getPacket(createResult.value.id)?.ttl).toBe(2);
+      expect(packetEngine.getPacket(createResult.value.id)?.state).toBe('FORWARDED');
+
+      // Second hop: R1 -> R2, R1 is a router, TTL 2 → 1 (still valid)
+      packetEngine.forwardPacket(createResult.value.id, r2);
+      expect(packetEngine.getPacket(createResult.value.id)?.ttl).toBe(1);
+
+      // Third hop: R2 -> Server1, R2 is a router, TTL 1 → 0 (expired)
+      const forwardResult = packetEngine.forwardPacket(createResult.value.id, server1);
+      expect(forwardResult.ok).toBe(false);
+      if (!forwardResult.ok) {
+        expect(forwardResult.error.code).toBe('TTL_EXPIRED');
+      }
+
+      const packet = packetEngine.getPacket(createResult.value.id);
+      expect(packet?.state).toBe('DROPPED');
+      expect(packet?.ttl).toBe(0);
+    });
+
+    it('TTL = 64: packet survives through fewer hops', () => {
+      const { pc1, r1, server1 } = setupSimpleNetwork();
+
+      const createResult = packetEngine.createPacket({
+        sourceDeviceId: pc1,
+        destinationDeviceId: server1,
+        sourceIp: '192.168.1.10',
+        destinationIp: '10.0.1.10',
+        payload: 'Test',
+        ttl: 64,
+      });
+
+      expect(createResult.ok).toBe(true);
+      if (!createResult.ok) return;
+
+      packetEngine.sendPacket(createResult.value.id);
+      // PC1 -> R1: PC1 is not a router, TTL stays 64
+      packetEngine.forwardPacket(createResult.value.id, r1);
+      expect(packetEngine.getPacket(createResult.value.id)?.ttl).toBe(64);
+
+      // R1 -> Server1: R1 is a router, TTL decrements to 63
+      packetEngine.forwardPacket(createResult.value.id, server1);
+
+      const packet = packetEngine.getPacket(createResult.value.id);
+      expect(packet?.ttl).toBe(63); // 64 → 63
+      expect(packet?.state).toBe('FORWARDED');
+    });
+
+    it('TTL does not reset at each router', () => {
+      const { pc1, r1, r2, server1 } = setupMultiHopNetwork();
+
+      const createResult = packetEngine.createPacket({
+        sourceDeviceId: pc1,
+        destinationDeviceId: server1,
+        sourceIp: '192.168.1.10',
+        destinationIp: '10.0.1.10',
+        payload: 'Test',
+        ttl: 64,
+      });
+
+      expect(createResult.ok).toBe(true);
+      if (!createResult.ok) return;
+
+      packetEngine.sendPacket(createResult.value.id);
+      // PC1 -> R1: PC1 is not a router, TTL stays 64
+      packetEngine.forwardPacket(createResult.value.id, r1);
+      expect(packetEngine.getPacket(createResult.value.id)?.ttl).toBe(64);
+
+      // R1 -> R2: R1 is a router, TTL decrements to 63
+      packetEngine.forwardPacket(createResult.value.id, r2);
+      expect(packetEngine.getPacket(createResult.value.id)?.ttl).toBe(63);
+
+      // R2 -> Server1: R2 is a router, TTL decrements to 62
+      packetEngine.forwardPacket(createResult.value.id, server1);
+
+      const packet = packetEngine.getPacket(createResult.value.id);
+      expect(packet?.ttl).toBe(62); // 64 → 63 → 62
+      // NOT 64, 64, 64 or 63, 63, 63
+    });
+
+    it('dropped packet cannot forward after TTL expiration', () => {
+      const { pc1, r1, server1 } = setupSimpleNetwork();
+
+      const createResult = packetEngine.createPacket({
+        sourceDeviceId: pc1,
+        destinationDeviceId: server1,
+        sourceIp: '192.168.1.10',
+        destinationIp: '10.0.1.10',
+        payload: 'Test',
+        ttl: 1,
+      });
+
+      expect(createResult.ok).toBe(true);
+      if (!createResult.ok) return;
+
+      packetEngine.sendPacket(createResult.value.id);
+      packetEngine.forwardPacket(createResult.value.id, r1); // This should drop the packet
+
+      // Try to forward again (should fail due to terminal state)
+      const forwardResult = packetEngine.forwardPacket(createResult.value.id, server1);
+      expect(forwardResult.ok).toBe(false);
+      if (!forwardResult.ok) {
+        expect(forwardResult.error.code).toBe('TTL_EXPIRED');
+      }
+    });
+
+    it('dropped packet cannot deliver after TTL expiration', () => {
+      const { pc1, r1, server1 } = setupSimpleNetwork();
+
+      const createResult = packetEngine.createPacket({
+        sourceDeviceId: pc1,
+        destinationDeviceId: server1,
+        sourceIp: '192.168.1.10',
+        destinationIp: '10.0.1.10',
+        payload: 'Test',
+        ttl: 1,
+      });
+
+      expect(createResult.ok).toBe(true);
+      if (!createResult.ok) return;
+
+      packetEngine.sendPacket(createResult.value.id);
+      packetEngine.forwardPacket(createResult.value.id, r1); // PC1 -> R1, TTL stays 1
+      packetEngine.forwardPacket(createResult.value.id, server1); // R1 -> Server1, TTL expires
+
+      // Try to deliver (should fail due to terminal state)
+      const deliverResult = packetEngine.deliverPacket(createResult.value.id);
+      expect(deliverResult.ok).toBe(false);
+      if (!deliverResult.ok) {
+        expect(deliverResult.error.code).toBe('SIMULATION_STATE_ERROR');
+      }
+    });
+
+    it('other packets unaffected by TTL expiration (independence test)', () => {
+      const { pc1, r1, server1 } = setupSimpleNetwork();
+
+      const packet1 = packetEngine.createPacket({
+        sourceDeviceId: pc1,
+        destinationDeviceId: server1,
+        sourceIp: '192.168.1.10',
+        destinationIp: '10.0.1.10',
+        payload: 'Packet 1',
+        ttl: 1,
+      });
+
+      const packet2 = packetEngine.createPacket({
+        sourceDeviceId: pc1,
+        destinationDeviceId: server1,
+        sourceIp: '192.168.1.10',
+        destinationIp: '10.0.1.10',
+        payload: 'Packet 2',
+        ttl: 64,
+      });
+
+      expect(packet1.ok && packet2.ok).toBe(true);
+      if (!packet1.ok || !packet2.ok) return;
+
+      packetEngine.sendPacket(packet1.value.id);
+      packetEngine.sendPacket(packet2.value.id);
+
+      // Packet1: PC1 -> R1 (TTL stays 1)
+      packetEngine.forwardPacket(packet1.value.id, r1);
+      // Packet1: R1 -> Server1 (TTL 1 → 0, expires)
+      const forwardResult = packetEngine.forwardPacket(packet1.value.id, server1);
+      expect(forwardResult.ok).toBe(false);
+      expect(packetEngine.getPacket(packet1.value.id)?.state).toBe('DROPPED');
+
+      // Packet2 should still have TTL = 64 and be in QUEUED state
+      expect(packetEngine.getPacket(packet2.value.id)?.ttl).toBe(64);
+      expect(packetEngine.getPacket(packet2.value.id)?.state).toBe('QUEUED');
+    });
+
+    it('TTL survives JSON serialization', () => {
+      const { pc1, server1 } = setupSimpleNetwork();
+
+      const createResult = packetEngine.createPacket({
+        sourceDeviceId: pc1,
+        destinationDeviceId: server1,
+        sourceIp: '192.168.1.10',
+        destinationIp: '10.0.1.10',
+        payload: 'Test',
+        ttl: 42,
+      });
+
+      expect(createResult.ok).toBe(true);
+      if (!createResult.ok) return;
+
+      const packet = packetEngine.getPacket(createResult.value.id);
+      expect(packet).toBeDefined();
+      if (!packet) return;
+
+      const serialized = JSON.stringify(packet);
+      const deserialized = JSON.parse(serialized) as typeof packet;
+
+      expect(deserialized.ttl).toBe(42);
+    });
+
+    it('drop reason is TTL_EXPIRED (not generic error)', () => {
+      const { pc1, r1, server1 } = setupSimpleNetwork();
+
+      let capturedReason: string | undefined;
+      eventBus.on('PACKET_DROPPED', (event) => {
+        capturedReason = event.reason;
+      });
+
+      const createResult = packetEngine.createPacket({
+        sourceDeviceId: pc1,
+        destinationDeviceId: server1,
+        sourceIp: '192.168.1.10',
+        destinationIp: '10.0.1.10',
+        payload: 'Test',
+        ttl: 1,
+      });
+
+      expect(createResult.ok).toBe(true);
+      if (!createResult.ok) return;
+
+      packetEngine.sendPacket(createResult.value.id);
+      packetEngine.forwardPacket(createResult.value.id, r1); // PC1 -> R1, TTL stays 1
+      packetEngine.forwardPacket(createResult.value.id, server1); // R1 -> Server1, TTL expires
+
+      expect(capturedReason).toBe('TTL_EXPIRED');
+    });
+
+    it('packet identity preserved through TTL changes', () => {
+      const { pc1, r1, r2, server1 } = setupMultiHopNetwork();
+
+      const createResult = packetEngine.createPacket({
+        sourceDeviceId: pc1,
+        destinationDeviceId: server1,
+        sourceIp: '192.168.1.10',
+        destinationIp: '10.0.1.10',
+        payload: 'Test',
+        ttl: 64,
+      });
+
+      expect(createResult.ok).toBe(true);
+      if (!createResult.ok) return;
+
+      const originalId = createResult.value.id;
+
+      packetEngine.sendPacket(originalId);
+      // PC1 -> R1: PC1 is not a router, TTL stays 64
+      packetEngine.forwardPacket(originalId, r1);
+      // R1 -> R2: R1 is a router, TTL decrements to 63
+      packetEngine.forwardPacket(originalId, r2);
+
+      const packet = packetEngine.getPacket(originalId);
+      expect(packet?.id).toBe(originalId);
+      expect(packet?.ttl).toBe(63);
+    });
+  });
+
   // ── Integration Tests ────────────────────────────────────────────────────────
 
   describe('Integration Tests', () => {

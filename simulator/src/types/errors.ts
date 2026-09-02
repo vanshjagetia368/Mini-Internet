@@ -31,6 +31,7 @@ export type SimulatorErrorCode =
   | 'INVALID_ROUTE'
   | 'PACKET_DROPPED'
   | 'SIMULATION_STATE_ERROR'
+  | 'TTL_EXPIRED'
   | 'INTERNAL_ERROR';
 
 // ─── Error Class ──────────────────────────────────────────────────────────────
