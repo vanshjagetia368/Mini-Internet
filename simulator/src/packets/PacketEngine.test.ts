@@ -3,7 +3,7 @@ import { PacketEngine } from './PacketEngine.js';
 import { NetworkGraph } from '../network/NetworkGraph.js';
 import { EventBus } from '../events/EventBus.js';
 import type { DeviceId, PacketId } from '../types/ids.js';
-import type { PacketState, PacketDropReason } from './Packet.js';
+import type { PacketDropReason } from './PacketDropReason.js';
 
 describe('PacketEngine', () => {
   let eventBus: EventBus;
@@ -19,7 +19,6 @@ describe('PacketEngine', () => {
   // ── Test Network Setup Helpers ───────────────────────────────────────────────
 
   function setupSimpleNetwork() {
-    // PC1 --- R1 --- Server1
     const pc1 = graph.addPc('PC1');
     const r1 = graph.addRouter('R1');
     const server1 = graph.addServer('Server1');
@@ -49,7 +48,6 @@ describe('PacketEngine', () => {
   }
 
   function setupMultiHopNetwork() {
-    // PC1 --- R1 --- R2 --- Server1
     const pc1 = graph.addPc('PC1');
     const r1 = graph.addRouter('R1');
     const r2 = graph.addRouter('R2');
@@ -107,6 +105,7 @@ describe('PacketEngine', () => {
         expect(result.value.currentLocation).toBe(pc1);
         expect(result.value.state).toBe('CREATED');
         expect(result.value.history).toEqual([pc1]);
+        expect(result.value.lifecycleHistory).toEqual([]);
         expect(result.value.createdAt).toBeDefined();
       }
     });
@@ -248,7 +247,7 @@ describe('PacketEngine', () => {
   // ── Packet Send Tests ────────────────────────────────────────────────────────
 
   describe('Packet Send', () => {
-    it('should send valid packet and transition to IN_TRANSIT', () => {
+    it('should send valid packet and transition to QUEUED with lifecycle history', () => {
       const { pc1, server1 } = setupSimpleNetwork();
 
       const createResult = packetEngine.createPacket({
@@ -266,7 +265,14 @@ describe('PacketEngine', () => {
       expect(sendResult.ok).toBe(true);
 
       const packet = packetEngine.getPacket(createResult.value.id);
-      expect(packet?.state).toBe('IN_TRANSIT');
+      expect(packet?.state).toBe('QUEUED');
+      expect(packet?.lifecycleHistory).toHaveLength(1);
+      expect(packet?.lifecycleHistory[0]).toMatchObject({
+        from: 'CREATED',
+        to: 'QUEUED',
+        reason: 'send',
+        ordinal: 1,
+      });
     });
 
     it('should fail to send non-existent packet', () => {
@@ -293,11 +299,9 @@ describe('PacketEngine', () => {
       expect(createResult.ok).toBe(true);
       if (!createResult.ok) return;
 
-      // Send and deliver
       packetEngine.sendPacket(createResult.value.id);
       packetEngine.deliverPacket(createResult.value.id);
 
-      // Try to send again
       const sendResult = packetEngine.sendPacket(createResult.value.id);
       expect(sendResult.ok).toBe(false);
       if (!sendResult.ok) {
@@ -319,7 +323,6 @@ describe('PacketEngine', () => {
       expect(createResult.ok).toBe(true);
       if (!createResult.ok) return;
 
-      // Remove source device
       graph.removeDevice(pc1);
 
       const sendResult = packetEngine.sendPacket(createResult.value.id);
@@ -333,7 +336,7 @@ describe('PacketEngine', () => {
   // ── Packet Forward Tests ─────────────────────────────────────────────────────
 
   describe('Packet Forward', () => {
-    it('should forward to connected neighbor successfully', () => {
+    it('should forward to connected neighbor successfully and state becomes FORWARDED', () => {
       const { pc1, r1, server1 } = setupSimpleNetwork();
 
       const createResult = packetEngine.createPacket({
@@ -353,8 +356,33 @@ describe('PacketEngine', () => {
       expect(forwardResult.ok).toBe(true);
 
       const packet = packetEngine.getPacket(createResult.value.id);
+      expect(packet?.state).toBe('FORWARDED');
       expect(packet?.currentLocation).toBe(r1);
       expect(packet?.history).toEqual([pc1, r1]);
+    });
+
+    it('first forward moves state QUEUED→FORWARDED; subsequent forwards keep FORWARDED', () => {
+      const { pc1, r1, r2, server1 } = setupMultiHopNetwork();
+
+      const createResult = packetEngine.createPacket({
+        sourceDeviceId: pc1,
+        destinationDeviceId: server1,
+        sourceIp: '192.168.1.10',
+        destinationIp: '10.0.1.10',
+        payload: 'Test',
+      });
+
+      expect(createResult.ok).toBe(true);
+      if (!createResult.ok) return;
+
+      packetEngine.sendPacket(createResult.value.id);
+      expect(packetEngine.getPacket(createResult.value.id)?.state).toBe('QUEUED');
+
+      packetEngine.forwardPacket(createResult.value.id, r1);
+      expect(packetEngine.getPacket(createResult.value.id)?.state).toBe('FORWARDED');
+
+      packetEngine.forwardPacket(createResult.value.id, r2);
+      expect(packetEngine.getPacket(createResult.value.id)?.state).toBe('FORWARDED');
     });
 
     it('should update current location on forward', () => {
@@ -399,6 +427,38 @@ describe('PacketEngine', () => {
       expect(packet?.history).toHaveLength(2);
       expect(packet?.history[0]).toBe(pc1);
       expect(packet?.history[1]).toBe(r1);
+    });
+
+    it('lifecycle history records each forward and the send transition', () => {
+      const { pc1, r1, r2, server1 } = setupMultiHopNetwork();
+
+      const createResult = packetEngine.createPacket({
+        sourceDeviceId: pc1,
+        destinationDeviceId: server1,
+        sourceIp: '192.168.1.10',
+        destinationIp: '10.0.1.10',
+        payload: 'Test',
+      });
+
+      expect(createResult.ok).toBe(true);
+      if (!createResult.ok) return;
+
+      packetEngine.sendPacket(createResult.value.id);
+      packetEngine.forwardPacket(createResult.value.id, r1);
+      packetEngine.forwardPacket(createResult.value.id, r2);
+      packetEngine.forwardPacket(createResult.value.id, server1);
+
+      const p = packetEngine.getPacket(createResult.value.id);
+      expect(p).toBeDefined();
+      if (!p) return;
+
+      expect(p.lifecycleHistory.map((e) => `${e.from}→${e.to}`)).toEqual([
+        'CREATED→QUEUED',
+        'QUEUED→FORWARDED',
+        'FORWARDED→FORWARDED',
+        'FORWARDED→FORWARDED',
+      ]);
+      expect(p.lifecycleHistory.map((e) => e.ordinal)).toEqual([1, 2, 3, 4]);
     });
 
     it('should fail to forward to unconnected device', () => {
@@ -504,7 +564,6 @@ describe('PacketEngine', () => {
 
       packetEngine.sendPacket(createResult.value.id);
 
-      // Remove current location
       graph.removeDevice(pc1);
 
       const forwardResult = packetEngine.forwardPacket(createResult.value.id, r1);
@@ -530,7 +589,6 @@ describe('PacketEngine', () => {
 
       packetEngine.sendPacket(createResult.value.id);
 
-      // Remove next hop
       graph.removeDevice(r1);
 
       const forwardResult = packetEngine.forwardPacket(createResult.value.id, r1);
@@ -556,7 +614,6 @@ describe('PacketEngine', () => {
 
       packetEngine.sendPacket(createResult.value.id);
 
-      // Fail the link
       const link = graph.getLinkBetween(pc1, r1);
       expect(link).toBeDefined();
       if (link) {
@@ -577,19 +634,7 @@ describe('PacketEngine', () => {
     it('should deliver packet at destination successfully', () => {
       const { pc1, server1 } = setupSimpleNetwork();
 
-      const createResult = packetEngine.createPacket({
-        sourceDeviceId: pc1,
-        destinationDeviceId: server1,
-        sourceIp: '192.168.1.10',
-        destinationIp: '10.0.1.10',
-        payload: 'Test',
-      });
-
-      expect(createResult.ok).toBe(true);
-      if (!createResult.ok) return;
-
-      // For local delivery, we need to move packet to destination first
-      // In this case, we'll test direct delivery at destination
+      // Local delivery case (source=destination, no forwarding needed)
       const manualDelivery = packetEngine.createPacket({
         sourceDeviceId: server1,
         destinationDeviceId: server1,
@@ -610,21 +655,50 @@ describe('PacketEngine', () => {
       expect(packet?.state).toBe('DELIVERED');
     });
 
-    it('should transition to DELIVERED state', () => {
+    it('QUEUED at destination transparently promotes to FORWARDED then DELIVERED', () => {
       const { server1 } = setupSimpleNetwork();
-
-      const createResult = packetEngine.createPacket({
+      const manualDelivery = packetEngine.createPacket({
         sourceDeviceId: server1,
         destinationDeviceId: server1,
         sourceIp: '10.0.1.10',
         destinationIp: '10.0.1.10',
-        payload: 'Local delivery',
+        payload: 'Local',
+      });
+
+      expect(manualDelivery.ok).toBe(true);
+      if (!manualDelivery.ok) return;
+
+      packetEngine.sendPacket(manualDelivery.value.id);
+      expect(packetEngine.getPacket(manualDelivery.value.id)?.state).toBe('QUEUED');
+
+      packetEngine.deliverPacket(manualDelivery.value.id);
+      const p = packetEngine.getPacket(manualDelivery.value.id);
+      expect(p?.state).toBe('DELIVERED');
+      // lifecycle history: CREATED→QUEUED, QUEUED→FORWARDED (implicit promotion), FORWARDED→DELIVERED
+      expect(p?.lifecycleHistory.map((e) => `${e.from}→${e.to}`)).toEqual([
+        'CREATED→QUEUED',
+        'QUEUED→FORWARDED',
+        'FORWARDED→DELIVERED',
+      ]);
+    });
+
+    it('should transition to DELIVERED state via full path', () => {
+      const { pc1, r1, server1 } = setupSimpleNetwork();
+
+      const createResult = packetEngine.createPacket({
+        sourceDeviceId: pc1,
+        destinationDeviceId: server1,
+        sourceIp: '192.168.1.10',
+        destinationIp: '10.0.1.10',
+        payload: 'Test',
       });
 
       expect(createResult.ok).toBe(true);
       if (!createResult.ok) return;
 
       packetEngine.sendPacket(createResult.value.id);
+      packetEngine.forwardPacket(createResult.value.id, r1);
+      packetEngine.forwardPacket(createResult.value.id, server1);
       packetEngine.deliverPacket(createResult.value.id);
 
       const packet = packetEngine.getPacket(createResult.value.id);
@@ -695,7 +769,7 @@ describe('PacketEngine', () => {
   // ── Packet Drop Tests ───────────────────────────────────────────────────────
 
   describe('Packet Drop', () => {
-    it('should drop packet and transition to DROPPED', () => {
+    it('should drop QUEUED packet and transition to DROPPED with lifecycle history', () => {
       const { pc1, server1 } = setupSimpleNetwork();
 
       const createResult = packetEngine.createPacket({
@@ -709,17 +783,71 @@ describe('PacketEngine', () => {
       expect(createResult.ok).toBe(true);
       if (!createResult.ok) return;
 
+      // State machine requires CREATED→QUEUED before QUEUED→DROPPED
+      packetEngine.sendPacket(createResult.value.id);
+
       const dropResult = packetEngine.dropPacket(createResult.value.id, 'INVALID_ROUTE');
       expect(dropResult.ok).toBe(true);
 
       const packet = packetEngine.getPacket(createResult.value.id);
       expect(packet?.state).toBe('DROPPED');
+      const last = packet?.lifecycleHistory[packet.lifecycleHistory.length - 1];
+      expect(last).toMatchObject({
+        from: 'QUEUED',
+        to: 'DROPPED',
+        reason: 'invalid_route',
+      });
     });
 
-    it('should preserve drop reason', () => {
+    it('should drop FORWARDED packet (mid-route) successfully', () => {
+      const { pc1, r1, server1 } = setupSimpleNetwork();
+
+      const createResult = packetEngine.createPacket({
+        sourceDeviceId: pc1,
+        destinationDeviceId: server1,
+        sourceIp: '192.168.1.10',
+        destinationIp: '10.0.1.10',
+        payload: 'Test',
+      });
+
+      expect(createResult.ok).toBe(true);
+      if (!createResult.ok) return;
+
+      packetEngine.sendPacket(createResult.value.id);
+      packetEngine.forwardPacket(createResult.value.id, r1);
+
+      const dropResult = packetEngine.dropPacket(createResult.value.id, 'UNREACHABLE');
+      expect(dropResult.ok).toBe(true);
+      expect(packetEngine.getPacket(createResult.value.id)?.state).toBe('DROPPED');
+    });
+
+    it('cannot drop a CREATED packet directly (must QUEUE first)', () => {
       const { pc1, server1 } = setupSimpleNetwork();
 
-      // Check that the event was emitted with the reason
+      const createResult = packetEngine.createPacket({
+        sourceDeviceId: pc1,
+        destinationDeviceId: server1,
+        sourceIp: '192.168.1.10',
+        destinationIp: '10.0.1.10',
+        payload: 'Test',
+      });
+
+      expect(createResult.ok).toBe(true);
+      if (!createResult.ok) return;
+
+      // Try to drop while still in CREATED state
+      const dropResult = packetEngine.dropPacket(createResult.value.id, 'INVALID_ROUTE');
+      expect(dropResult.ok).toBe(false);
+      if (!dropResult.ok) {
+        expect(dropResult.error.code).toBe('SIMULATION_STATE_ERROR');
+      }
+      // Original state preserved
+      expect(packetEngine.getPacket(createResult.value.id)?.state).toBe('CREATED');
+    });
+
+    it('should preserve drop reason in emitted event', () => {
+      const { pc1, server1 } = setupSimpleNetwork();
+
       let capturedReason: string | undefined;
       eventBus.on('PACKET_DROPPED', (event) => {
         capturedReason = event.reason;
@@ -736,12 +864,13 @@ describe('PacketEngine', () => {
       expect(createResult.ok).toBe(true);
       if (!createResult.ok) return;
 
+      packetEngine.sendPacket(createResult.value.id);
       const dropResult = packetEngine.dropPacket(createResult.value.id, 'UNREACHABLE');
       expect(dropResult.ok).toBe(true);
       expect(capturedReason).toBe('UNREACHABLE');
     });
 
-    it('should fail to drop from terminal state', () => {
+    it('should fail to drop from terminal state (DELIVERED)', () => {
       const { server1 } = setupSimpleNetwork();
 
       const createResult = packetEngine.createPacket({
@@ -758,7 +887,10 @@ describe('PacketEngine', () => {
       packetEngine.sendPacket(createResult.value.id);
       packetEngine.deliverPacket(createResult.value.id);
 
-      const dropResult = packetEngine.dropPacket(createResult.value.id, 'INVALID_ROUTE');
+      const dropResult = packetEngine.dropPacket(
+        createResult.value.id,
+        'INVALID_ROUTE' as PacketDropReason,
+      );
       expect(dropResult.ok).toBe(false);
       if (!dropResult.ok) {
         expect(dropResult.error.code).toBe('SIMULATION_STATE_ERROR');
@@ -768,11 +900,47 @@ describe('PacketEngine', () => {
     it('should fail to drop non-existent packet', () => {
       const invalidPacketId = 'invalid-packet-id' as PacketId;
 
-      const result = packetEngine.dropPacket(invalidPacketId, 'INVALID_ROUTE');
+      const result = packetEngine.dropPacket(invalidPacketId, 'INVALID_ROUTE' as PacketDropReason);
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error.code).toBe('ENTITY_NOT_FOUND');
       }
+    });
+
+    it('dropped packet preserves id/source/dest/payload/location/history/drop reason', () => {
+      const { pc1, r1, server1 } = setupSimpleNetwork();
+
+      const createResult = packetEngine.createPacket({
+        sourceDeviceId: pc1,
+        destinationDeviceId: server1,
+        sourceIp: '192.168.1.10',
+        destinationIp: '10.0.1.10',
+        payload: 'DROP_TEST',
+      });
+
+      expect(createResult.ok).toBe(true);
+      if (!createResult.ok) return;
+      const id = createResult.value.id;
+
+      packetEngine.sendPacket(id);
+      packetEngine.forwardPacket(id, r1);
+      packetEngine.dropPacket(id, 'NO_ROUTE_TO_HOST');
+
+      const p = packetEngine.getPacket(id);
+      expect(p).toBeDefined();
+      if (!p) return;
+
+      expect(p.id).toBe(id);
+      expect(p.sourceDeviceId).toBe(pc1);
+      expect(p.destinationDeviceId).toBe(server1);
+      expect(p.sourceIp).toBe('192.168.1.10');
+      expect(p.destinationIp).toBe('10.0.1.10');
+      expect(p.payload).toBe('DROP_TEST');
+      expect(p.currentLocation).toBe(r1);
+      expect(p.history).toEqual([pc1, r1]);
+      const last = p.lifecycleHistory[p.lifecycleHistory.length - 1];
+      expect(last.to).toBe('DROPPED');
+      expect(last.reason).toBe('no_route_to_host');
     });
   });
 
@@ -820,7 +988,10 @@ describe('PacketEngine', () => {
       packetEngine.sendPacket(createResult.value.id);
       packetEngine.deliverPacket(createResult.value.id);
 
-      const dropResult = packetEngine.dropPacket(createResult.value.id, 'INVALID_ROUTE');
+      const dropResult = packetEngine.dropPacket(
+        createResult.value.id,
+        'INVALID_ROUTE' as PacketDropReason,
+      );
       expect(dropResult.ok).toBe(false);
       if (!dropResult.ok) {
         expect(dropResult.error.code).toBe('SIMULATION_STATE_ERROR');
@@ -841,6 +1012,7 @@ describe('PacketEngine', () => {
       expect(createResult.ok).toBe(true);
       if (!createResult.ok) return;
 
+      packetEngine.sendPacket(createResult.value.id);
       packetEngine.dropPacket(createResult.value.id, 'INVALID_ROUTE');
 
       const forwardResult = packetEngine.forwardPacket(createResult.value.id, server1);
@@ -864,12 +1036,13 @@ describe('PacketEngine', () => {
       expect(createResult.ok).toBe(true);
       if (!createResult.ok) return;
 
+      packetEngine.sendPacket(createResult.value.id);
       packetEngine.dropPacket(createResult.value.id, 'INVALID_ROUTE');
 
       const deliverResult = packetEngine.deliverPacket(createResult.value.id);
       expect(deliverResult.ok).toBe(false);
       if (!deliverResult.ok) {
-        expect(deliverResult.error.code).toBe('SIMULATION_STATE_ERROR');
+        expect(deliverResult.error.code).toBe('SIMULATION_STATE_ERROR'); // terminal state check runs before location check
       }
     });
   });
@@ -936,7 +1109,7 @@ describe('PacketEngine', () => {
       }
     });
 
-    it('packet operations do not affect other packets', () => {
+    it('packet operations do not affect other packets — independence test', () => {
       const { pc1, server1 } = setupSimpleNetwork();
 
       const packet1 = packetEngine.createPacket({
@@ -958,12 +1131,14 @@ describe('PacketEngine', () => {
       expect(packet1.ok && packet2.ok).toBe(true);
       if (!packet1.ok || !packet2.ok) return;
 
-      // Drop packet1
+      // Drop packet1: send first (to QUEUED) then drop
+      packetEngine.sendPacket(packet1.value.id);
       packetEngine.dropPacket(packet1.value.id, 'INVALID_ROUTE');
 
-      // Packet2 should still be in CREATED state
-      const packet2State = packetEngine.getPacket(packet2.value.id)?.state;
-      expect(packet2State).toBe('CREATED');
+      // Packet2 should still be in CREATED state, completely unaffected
+      const p2 = packetEngine.getPacket(packet2.value.id);
+      expect(p2?.state).toBe('CREATED');
+      expect(p2?.lifecycleHistory).toHaveLength(0);
     });
   });
 
@@ -1108,8 +1283,8 @@ describe('PacketEngine', () => {
       expect(packetEngine.hasPacket('invalid-id' as PacketId)).toBe(false);
     });
 
-    it('getActivePackets returns non-terminal packets', () => {
-      const { pc1, server1 } = setupSimpleNetwork();
+    it('getActivePackets returns non-terminal packets (CREATED/QUEUED/FORWARDED)', () => {
+      const { pc1, r1, server1 } = setupSimpleNetwork();
 
       const packet1 = packetEngine.createPacket({
         sourceDeviceId: pc1,
@@ -1130,15 +1305,18 @@ describe('PacketEngine', () => {
       expect(packet1.ok && packet2.ok).toBe(true);
       if (!packet1.ok || !packet2.ok) return;
 
-      // Send one packet to make it IN_TRANSIT
+      // Send one packet to QUEUED, forward another through to FORWARDED
       packetEngine.sendPacket(packet1.value.id);
+      packetEngine.sendPacket(packet2.value.id);
+      packetEngine.forwardPacket(packet2.value.id, r1);
 
       const activePackets = packetEngine.getActivePackets();
       expect(activePackets.length).toBe(2);
-      expect(activePackets.every((p) => p.state === 'CREATED' || p.state === 'IN_TRANSIT')).toBe(true);
+      const states = activePackets.map((p) => p.state);
+      expect(states.sort()).toEqual(['FORWARDED', 'QUEUED'].sort());
     });
 
-    it('getCompletedPackets returns terminal packets', () => {
+    it('getCompletedPackets returns terminal packets (DELIVERED / DROPPED)', () => {
       const { pc1, server1 } = setupSimpleNetwork();
 
       const packet1 = packetEngine.createPacket({
@@ -1160,7 +1338,8 @@ describe('PacketEngine', () => {
       expect(packet1.ok && packet2.ok).toBe(true);
       if (!packet1.ok || !packet2.ok) return;
 
-      // Drop one packet
+      // Drop one (send then drop)
+      packetEngine.sendPacket(packet1.value.id);
       packetEngine.dropPacket(packet1.value.id, 'INVALID_ROUTE');
 
       const completedPackets = packetEngine.getCompletedPackets();
@@ -1172,7 +1351,7 @@ describe('PacketEngine', () => {
   // ── Integration Tests ────────────────────────────────────────────────────────
 
   describe('Integration Tests', () => {
-    it('full scenario: PC1 → R1 → R2 → Server1', () => {
+    it('full scenario: PC1 → R1 → R2 → Server1 with state machine validation', () => {
       const { pc1, r1, r2, server1 } = setupMultiHopNetwork();
 
       const createResult = packetEngine.createPacket({
@@ -1188,28 +1367,41 @@ describe('PacketEngine', () => {
 
       const packetId = createResult.value.id;
 
-      // Send
+      // Step 1: Send → CREATED→QUEUED
       packetEngine.sendPacket(packetId);
-      expect(packetEngine.getPacket(packetId)?.state).toBe('IN_TRANSIT');
+      expect(packetEngine.getPacket(packetId)?.state).toBe('QUEUED');
 
-      // Forward PC1 → R1
+      // Step 2: Forward PC1 → R1, QUEUED→FORWARDED
       packetEngine.forwardPacket(packetId, r1);
+      expect(packetEngine.getPacket(packetId)?.state).toBe('FORWARDED');
       expect(packetEngine.getPacket(packetId)?.currentLocation).toBe(r1);
       expect(packetEngine.getPacket(packetId)?.history).toEqual([pc1, r1]);
 
-      // Forward R1 → R2
+      // Step 3: Forward R1 → R2, FORWARDED→FORWARDED
       packetEngine.forwardPacket(packetId, r2);
+      expect(packetEngine.getPacket(packetId)?.state).toBe('FORWARDED');
       expect(packetEngine.getPacket(packetId)?.currentLocation).toBe(r2);
       expect(packetEngine.getPacket(packetId)?.history).toEqual([pc1, r1, r2]);
 
-      // Forward R2 → Server1
+      // Step 4: Forward R2 → Server1, FORWARDED→FORWARDED
       packetEngine.forwardPacket(packetId, server1);
+      expect(packetEngine.getPacket(packetId)?.state).toBe('FORWARDED');
       expect(packetEngine.getPacket(packetId)?.currentLocation).toBe(server1);
       expect(packetEngine.getPacket(packetId)?.history).toEqual([pc1, r1, r2, server1]);
 
-      // Deliver
+      // Step 5: Deliver, FORWARDED→DELIVERED
       packetEngine.deliverPacket(packetId);
       expect(packetEngine.getPacket(packetId)?.state).toBe('DELIVERED');
+
+      // Final lifecycle audit
+      const finalLifecycle = packetEngine.getPacket(packetId)?.lifecycleHistory ?? [];
+      expect(finalLifecycle.map((e) => `${e.from}→${e.to}`)).toEqual([
+        'CREATED→QUEUED',
+        'QUEUED→FORWARDED',
+        'FORWARDED→FORWARDED',
+        'FORWARDED→FORWARDED',
+        'FORWARDED→DELIVERED',
+      ]);
     });
 
     it('event emissions verification', () => {
@@ -1234,7 +1426,7 @@ describe('PacketEngine', () => {
       expect(events).toContain('PACKET_CREATED');
     });
 
-    it('history tracking across multiple hops', () => {
+    it('location history across multiple hops is separated from lifecycle history', () => {
       const { pc1, r1, r2, server1 } = setupMultiHopNetwork();
 
       const createResult = packetEngine.createPacket({
@@ -1254,9 +1446,20 @@ describe('PacketEngine', () => {
       packetEngine.forwardPacket(packetId, r1);
       packetEngine.forwardPacket(packetId, r2);
       packetEngine.forwardPacket(packetId, server1);
+      packetEngine.deliverPacket(packetId);
 
       const packet = packetEngine.getPacket(packetId);
+      // Location history: device hops only
       expect(packet?.history).toEqual([pc1, r1, r2, server1]);
+      // Lifecycle history: state transitions only (separate concept)
+      expect(packet?.lifecycleHistory.map((e) => e.to)).toEqual([
+        'QUEUED',
+        'FORWARDED',
+        'FORWARDED',
+        'FORWARDED',
+        'DELIVERED',
+      ]);
+      expect(packet?.history.length).not.toBe(packet?.lifecycleHistory.length);
     });
   });
 });

@@ -1,11 +1,14 @@
 # Mini Internet — Architecture Document
 
-> **Document Status**: v0.3.0 — Prompt 5 (Device Engine) Complete.
+> **Document Status**: v0.4.0 — Prompt 8 (Packet Lifecycle) Complete.
 > Prompt 1: ✅ Architecture Defined
 > Prompt 2: ✅ Project Foundation, Tooling, and Dev Environment Implemented
 > Prompt 3: ✅ Core Domain Model
 > Prompt 4: ✅ Network Graph Engine
 > Prompt 5: ✅ Device Engine
+> Prompt 6: ✅ IPv4/Subnet Engine
+> Prompt 7: ✅ Packet Engine
+> Prompt 8: ✅ Packet Lifecycle State Machine
 > Clearly marks what is **implemented**, **planned**, or **future**.
 
 ---
@@ -588,6 +591,125 @@ The `NetworkGraph` is the single source of truth for the simulator's topology.
 - **Node-removal Behavior**: Removing a node operates using cascading deletes. All interfaces on the node are removed, which triggers the removal of all links connected to those interfaces. This guarantees no stale link references remain.
 - **Link-removal Behavior**: Removing a link detaches it from both endpoint interfaces by setting their `connectedLinkId` to `null` and deletes the link entity. It does NOT remove the endpoint nodes.
 - **Graph Invariants**: The graph strictly prevents self-connecting interfaces. Disconnected endpoints, duplicate names, and stale references after deletions are strictly prohibited. Devices and Links track `OperationalStatus` (UP/DOWN) without actually being removed from the topology.
+
+---
+
+---
+
+## 16. Packet Lifecycle State Machine
+
+**Status: Implemented (Prompt 8). Formal 5-state deterministic model with centralized transition authority and lifecycle audit trail.**
+
+### 16.1 Overview
+
+Every packet in the simulator progresses through a strictly-defined lifecycle represented by five canonical states. Transitions are validated centrally; no code outside the packet state machine may directly mutate `packet.state`. The three separate concepts of **state**, **location**, and **history** are never conflated.
+
+### 16.2 States
+
+| State       | Meaning                                                                                                                                        |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CREATED`   | Packet has been instantiated with source/destination/payload but not yet accepted into the processing pipeline.                                |
+| `QUEUED`    | Packet has been accepted for transmission (`sendPacket`) and is ready to move to the next hop.                                                 |
+| `FORWARDED` | Packet is in transit — it has left its previous hop and is moving toward the next. Remains `FORWARDED` across multiple hops (self-transition). |
+| `DELIVERED` | **Terminal.** Packet has reached the intended destination device. No further transitions allowed.                                              |
+| `DROPPED`   | **Terminal.** Packet was discarded for a documented reason before reaching its destination. No further transitions allowed.                    |
+
+### 16.3 Allowed Transitions
+
+```
+CREATED
+   │
+   ▼
+QUEUED ────────────────────────┐
+   │                           │
+   ▼                           ▼
+FORWARDED ◄───┐           DROPPED (terminal)
+   │          │
+   ├──────────┘ (multi-hop self-loop)
+   │
+   ▼
+DELIVERED (terminal)
+```
+
+Formal transition table:
+
+| From state  | Allowed next states                 | Operation example                                                  |
+| ----------- | ----------------------------------- | ------------------------------------------------------------------ |
+| `CREATED`   | `{ QUEUED }`                        | `sendPacket` (accepted into pipeline)                              |
+| `QUEUED`    | `{ FORWARDED, DROPPED }`            | `forwardPacket` or drop-in-queue                                   |
+| `FORWARDED` | `{ FORWARDED, DELIVERED, DROPPED }` | Multi-hop forward, delivery at destination, drop during forwarding |
+| `DELIVERED` | `{}` — terminal                     | _Never transitions again_                                          |
+| `DROPPED`   | `{}` — terminal                     | _Never transitions again_                                          |
+
+### 16.4 Invalid Transitions (Explicitly Rejected)
+
+All transitions not listed in §16.3 are invalid. The following categories are explicitly disallowed:
+
+- **Backward transitions**: `QUEUED → CREATED`, `FORWARDED → CREATED`, `FORWARDED → QUEUED`
+- **Terminal mutation**: Any `DELIVERED → *` or `DROPPED → *` (cannot deliver-after-drop, forward-after-deliver, drop-after-deliver, queue-after-drop, etc.)
+- **Creation short-circuits**: `CREATED → DELIVERED`, `CREATED → DROPPED`, `CREATED → FORWARDED` (a newly created packet must first be queued via `sendPacket` before any further processing)
+- **Mid-pipeline short-circuits**: `QUEUED → DELIVERED` (when currentLocation == destination, the engine transparently promotes `QUEUED → FORWARDED → DELIVERED` in two formal steps, never skipping FORWARDED)
+
+### 16.5 Transition Ownership
+
+> **Hard rule:** No module, function, test, or consumer outside `simulator/src/packets/PacketStateMachine.ts` ever assigns to `packet.state`.
+
+All state changes go through the single entry point:
+
+```typescript
+transitionPacket(packet: Packet, nextState: PacketState, opts: {
+  reason: PacketTransitionReason | PacketDropReason;
+  atDeviceId?: DeviceId;
+}): Result<Packet>
+```
+
+- Returns a new `Packet` clone on success (never mutates input).
+- Returns `SimulatorError { code: SIMULATION_STATE_ERROR }` with context `{ packetId, currentState, nextState, reason, terminal }` on disallowed transitions.
+- Pure predicate helpers `isValidPacketTransition(cur,next)` and `isTerminalPacketState(s)` are exposed for consumers that need to query without mutating.
+
+### 16.6 Lifecycle History (Audit Trail)
+
+Every packet carries `packet.lifecycleHistory: PacketLifecycleTransition[]` — a monotonic, append-only log of state transitions, separate from `packet.history` (the location/device-traversal log) and `packet.currentLocation` (the present device).
+
+Each entry records:
+
+| Field        | Type                          | Meaning                                                                                                                                                               |
+| ------------ | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `from`       | `PacketState`                 | State before transition                                                                                                                                               |
+| `to`         | `PacketState`                 | State after transition                                                                                                                                                |
+| `reason`     | `PacketTransitionReason`      | Why this transition occurred (`send`, `forward`, `destination_reached`, `invalid_route`, `unreachable`, `no_route_to_host`, `invalid_packet`, `ttl_expired`, `other`) |
+| `ordinal`    | `number` (1-based, monotonic) | Stable ordering for events before a simulation clock exists (Prompt 20 owns simulation time — wall-clock `Date.now`/`performance.now` is never used for ordering).    |
+| `atDeviceId` | `DeviceId \| null`            | Device the packet was on when the transition fired, if locatable.                                                                                                     |
+
+### 16.7 Packet Engine Integration
+
+The five packet-engine operations route every state mutation through `transitionPacket`:
+
+| Operation       | Transition(s) performed                                                                                                                                                                                                                                              |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createPacket`  | Sets initial state to `CREATED` (no transition call — the factory constructor sets it once).                                                                                                                                                                         |
+| `sendPacket`    | `CREATED → QUEUED` with reason `send`.                                                                                                                                                                                                                               |
+| `forwardPacket` | `QUEUED → FORWARDED` (first hop) or `FORWARDED → FORWARDED` (subsequent hops) with reason `forward`.                                                                                                                                                                 |
+| `deliverPacket` | If `QUEUED` (local delivery, already at destination): first `QUEUED → FORWARDED`, then `FORWARDED → DELIVERED` with reason `destination_reached`. If already `FORWARDED`: direct `FORWARDED → DELIVERED`. Always verifies `currentLocation === destinationDeviceId`. |
+| `dropPacket`    | `QUEUED → DROPPED` or `FORWARDED → DROPPED` with a mapped structured drop reason. Rejects terminal packets.                                                                                                                                                          |
+
+### 16.8 Immutable Identity Fields
+
+The following are set once at creation and never change on any lifecycle transition (enforced by `transitionPacket` returning a clone that reuses the original reference):
+
+- `id`
+- `sourceDeviceId`, `destinationDeviceId`
+- `sourceIp`, `destinationIp`
+- `payload`
+- `createdAt`
+
+### 16.9 Extensibility for Future Prompts
+
+The state machine is designed so subsequent prompts can hook in without modifying the transition table or validation core:
+
+- **Prompt 9 (TTL)**: Can invoke `dropPacket(pkt, TTL_EXPIRED)` directly. The `ttl_expired` reason union tag already exists in `PacketTransitionReason`; Prompt 9 only needs to add the caller that actually triggers it.
+- **Prompt 10 (Routing)**: `forwardPacket`'s existing signature accepts an explicit next-hop device ID, so BFS/Dijkstra can be plugged in as the caller without touching the state machine itself.
+- **Prompt 20 (Simulation clock)**: The `ordinal` field will be co-sorted with (or eventually replaced by) a simulation tick; today's ordering via ordinal guarantees deterministic sort regardless.
 
 ---
 

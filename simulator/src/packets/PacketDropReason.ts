@@ -23,11 +23,7 @@
  *   - Additional congestion, QoS, or security reasons
  */
 export type PacketDropReason =
-  | 'INVALID_PACKET'
-  | 'INVALID_ROUTE'
-  | 'UNREACHABLE'
-  | 'NO_ROUTE_TO_HOST'
-  | 'TTL_EXPIRED'; // Reserved for Prompt 9
+  'INVALID_PACKET' | 'INVALID_ROUTE' | 'UNREACHABLE' | 'NO_ROUTE_TO_HOST' | 'TTL_EXPIRED'; // Reserved for Prompt 9
 
 /**
  * Validate that a drop reason is recognized.

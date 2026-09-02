@@ -85,6 +85,7 @@ interface Link {
 The authoritative, mutable network state container. This class is the single source of truth for network topology.
 
 **Responsibilities**:
+
 - Device and interface CRUD operations
 - Link creation and management
 - Topology queries (neighbors, connected links, device lookups)
@@ -100,11 +101,13 @@ The authoritative, mutable network state container. This class is the single sou
 A stateless factory for creating network devices with validated defaults.
 
 **Responsibilities**:
+
 - Device creation with type-specific defaults
 - Interface management
 - Prevention of invalid/partial device creation
 
 **Device Defaults**:
+
 - PC → loopback (lo) + eth0
 - SERVER → loopback (lo) + eth0
 - ROUTER → loopback (lo) only (eth interfaces added explicitly)
@@ -116,6 +119,7 @@ A stateless factory for creating network devices with validated defaults.
 Domain model for IPv4 addresses and subnets with strict validation.
 
 **Responsibilities**:
+
 - IPv4 address validation (strict dotted-decimal 0–255)
 - Prefix length validation (0–32)
 - Subnet mask ↔ prefix length conversion (contiguous only)
@@ -131,13 +135,15 @@ Domain model for IPv4 addresses and subnets with strict validation.
 Core packet processing engine for packet lifecycle management.
 
 **Responsibilities**:
+
 - Create, send, forward, deliver, and drop packets
 - Validate all packet operations against network topology
 - Maintain packet registry (active and completed packets)
 - Emit packet lifecycle events
-- Enforce packet state machine invariants
+- Delegate ALL state mutations to `PacketStateMachine.transitionPacket()` — no uncontrolled state assignment
 
 **Packet Domain Model**:
+
 ```typescript
 interface Packet {
   readonly id: PacketId;
@@ -149,21 +155,111 @@ interface Packet {
   currentLocation: DeviceId;
   state: PacketState;
   readonly history: DeviceId[];
+  readonly lifecycleHistory: PacketLifecycleTransition[];
   readonly createdAt: number;
   readonly metadata?: Record<string, unknown>;
 }
 ```
 
-**Packet Lifecycle**: CREATED → IN_TRANSIT → (DELIVERED | DROPPED)
-
 **Key Design Decisions**:
+
 - **Device-level addressing**: Packets move between devices, not interfaces. This keeps the implementation focused on "Can a packet move from Device A → Device B through the topology?" without premature interface-level routing complexity.
 - **No routing logic**: PacketEngine validates next hops but does NOT calculate routes. Route calculation is the responsibility of future routing algorithms.
 - **Topology respect**: All forwarding validated against NetworkGraph
-- **Local delivery support**: Source = destination is allowed for valid local communication
+- **Local delivery support**: Source = destination is allowed for valid local communication. When delivering a QUEUED packet already at the destination, the engine transparently promotes QUEUED→FORWARDED then FORWARDED→DELIVERED so the formal state-machine table remains strict.
 - **Extensibility**: Metadata field for future features (TTL, interface-level addressing, QoS)
+- **Separate history concepts**:
+  - `history` = ordered device-traversal path (location hops)
+  - `lifecycleHistory` = ordered state-machine transitions (audit trail)
 
 **Separation from Routing**: PacketEngine ≠ RoutingEngine. The packet engine answers "Given the next hop, can the packet be forwarded?" while routing engines answer "Which route is best?"
+
+### Packet Lifecycle State Machine
+
+**Files**: `src/packets/PacketStateMachine.ts`, `src/packets/Packet.ts`
+
+Formal, deterministic 5-state lifecycle machine. The authoritative transition authority — no code outside the state machine is allowed to assign `packet.state` directly.
+
+**States** (in lifecycle order):
+
+| State       | Description                                                                      |
+| ----------- | -------------------------------------------------------------------------------- |
+| `CREATED`   | Packet exists but has not entered the processing pipeline. Initial state only.   |
+| `QUEUED`    | Packet accepted for transmission (CREATED → QUEUED by `sendPacket`).             |
+| `FORWARDED` | Packet is moving through the network. Remains FORWARDED across multiple hops.    |
+| `DELIVERED` | **Terminal.** Packet reached destinationDeviceId. No further transitions.        |
+| `DROPPED`   | **Terminal.** Packet discarded with a structured reason. No further transitions. |
+
+**Allowed Transition Table** (single source of truth: `ALLOWED_PACKET_TRANSITIONS`):
+
+```
+CREATED
+   │
+   ▼
+QUEUED ─────────────────────────────► DROPPED
+   │
+   ▼
+FORWARDED ──────────────────────────► DROPPED
+   │  │
+   │  └──── FORWARDED (multi-hop loop, self-transition)
+   ▼
+DELIVERED
+```
+
+| From        | To allowed                          |
+| ----------- | ----------------------------------- |
+| `CREATED`   | `QUEUED`                            |
+| `QUEUED`    | `FORWARDED`, `DROPPED`              |
+| `FORWARDED` | `FORWARDED`, `DELIVERED`, `DROPPED` |
+| `DELIVERED` | _(terminal, none)_                  |
+| `DROPPED`   | _(terminal, none)_                  |
+
+**Invalid transitions explicitly rejected** (return `SIMULATION_STATE_ERROR`):
+
+- All backward jumps: QUEUED→CREATED, FORWARDED→CREATED, FORWARDED→QUEUED
+- CREATED directly to FORWARDED / DELIVERED / DROPPED (bypassing queue)
+- Anything ← DELIVERED (cannot touch a delivered packet)
+- Anything ← DROPPED (cannot resurrect a dropped packet)
+
+**Transition Ownership** (the only callers that legitimately drive state):
+
+| Engine Method     | Transition(s) Triggered                                                       | Structured Reason                                                                                                      |
+| ----------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `createPacket()`  | (sets initial = CREATED, no entry in lifecycleHistory)                        | —                                                                                                                      |
+| `sendPacket()`    | CREATED → QUEUED                                                              | `send`                                                                                                                 |
+| `forwardPacket()` | QUEUED → FORWARDED (first hop) <br> FORWARDED → FORWARDED (subsequent hops)   | `forward`                                                                                                              |
+| `deliverPacket()` | QUEUED → FORWARDED → DELIVERED (local convenience) <br> FORWARDED → DELIVERED | `forward`, `destination_reached`                                                                                       |
+| `dropPacket()`    | QUEUED → DROPPED <br> FORWARDED → DROPPED                                     | `invalid_route`, `unreachable`, `no_route_to_host`, `invalid_packet`, `ttl_expired` _(reserved for Prompt 9)_, `other` |
+
+**Controlled Transition Function**:
+
+```typescript
+function transitionPacket(
+  packet: Packet,
+  nextState: PacketState,
+  opts: { reason: PacketTransitionReason | PacketDropReason; atDeviceId?: DeviceId },
+): Result<Packet>;
+```
+
+Guarantees:
+
+1. Validates against the transition table before any mutation.
+2. Returns a **clone** of the packet — the input reference is never mutated in place.
+3. Never touches `id`, `sourceDeviceId`, `destinationDeviceId`, `sourceIp`, `destinationIp`, `payload`, `createdAt`.
+4. Appends an append-only `PacketLifecycleTransition` record with a **monotonic ordinal** (1-based, gap-free):
+   ```typescript
+   {
+     (from, to, reason, ordinal, atDeviceId);
+   }
+   ```
+5. Terminal states always reject — once DELIVERED or DROPPED, every attempt returns an error.
+
+**Active vs Completed Packets** (registry semantics):
+
+- _Active_: CREATED, QUEUED, FORWARDED — non-terminal, in-flight.
+- _Completed_: DELIVERED, DROPPED — terminal, immutable lifecycle.
+
+**Serialization & Rehydration**: All 5 states (and the lifecycleHistory array) survive JSON round-trips. `hasReachedState(packet, target)` can answer "did this packet ever reach state X?" using either current state or lifecycle-history records.
 
 ### Routing Algorithm Interface
 
@@ -174,6 +270,7 @@ The routing algorithm abstraction — the core extension point for all future ro
 **Current State**: Interface + placeholder. No algorithms implemented yet.
 
 **Planned Implementations**:
+
 - BFS (breadth-first search shortest path)
 - Dijkstra (shortest weighted path)
 - Distance Vector (RIP-style)
@@ -188,6 +285,7 @@ The routing algorithm abstraction — the core extension point for all future ro
 A minimal, typed event bus for simulation events.
 
 **Responsibilities**:
+
 - Event subscription (type-specific and wildcard)
 - Event emission
 - Event type safety
@@ -201,6 +299,7 @@ A minimal, typed event bus for simulation events.
 The top-level coordinator for a running simulation.
 
 **Responsibilities**:
+
 - Hold the authoritative NetworkGraph
 - Accept commands and delegate to appropriate subsystems
 - Emit SimulationEvents through the EventBus
@@ -256,6 +355,7 @@ type Result<T> =
 **Events** (`src/types/events.ts`): Facts about the past emitted BY the simulator.
 
 This separation enables:
+
 - Command validation and error handling
 - Event-driven architecture for consumers (server, persistence, tests)
 - Clear audit trail of simulation state changes
@@ -263,53 +363,70 @@ This separation enables:
 ## Implementation Phases
 
 ### Phase 1: Foundation ✅
+
 - Core repository setup
 - Development foundation
 - Core domain foundation
 
 ### Phase 2: Topology ✅
+
 - Network graph engine
 - Device engine
 - IPv4/subnet engine
 
-### Phase 3: Packet Engine ✅ (Current)
-- Packet domain model
-- Packet lifecycle management
-- Packet processing operations
-- Packet registry
+### Phase 3: Packet Engine ✅
 
-### Phase 4: Packet Lifecycle (Planned)
-- Formalized state machine
-- Granular state transitions
-- Lifecycle validation
+- Packet domain model
+- Packet lifecycle operations (create/send/forward/deliver/drop)
+- Packet registry (active/completed)
+- NetworkGraph topology validation
+
+### Phase 4: Packet Lifecycle ✅ (Current)
+
+- Formal 5-state machine: CREATED → QUEUED → FORWARDED → (DELIVERED | DROPPED)
+- Authoritative transition table — no uncontrolled `packet.state` assignment
+- `transitionPacket()` as the ONLY legal state-mutation mechanism
+- Terminal-state immutability (DELIVERED and DROPPED never transition again)
+- Append-only `lifecycleHistory` audit trail per packet (from / to / reason / ordinal / atDeviceId)
+- Validated transitions: 5×5 matrix — every invalid combination rejected with `SIMULATION_STATE_ERROR`
+- Structured transition reasons (`send`, `forward`, `destination_reached`, `invalid_route`, `unreachable`, `no_route_to_host`, `invalid_packet`, `ttl_expired` reserved, `other`)
+- PacketEngine fully integrated (all five lifecycle methods route through the state machine)
+- Immutable packet identity across every transition (id / source / destination / payload / createdAt)
+- Full state-machine test suite + PacketEngine integration tests updated
 
 ### Phase 5: TTL (Planned)
+
 - Time-to-live implementation
 - TTL decrement on forwarding
 - TTL_EXPIRED drop reason
 
 ### Phase 6: Routing (Planned)
+
 - BFS pathfinding
 - Dijkstra algorithm
 - Routing table management
 
 ### Phase 7: Advanced Routing (Planned)
+
 - Distance Vector
 - Link State
 - Dynamic route computation
 
 ### Phase 8: Network Conditions (Planned)
+
 - Latency simulation
 - Packet loss modeling
 - Bandwidth constraints
 - Congestion simulation
 
 ### Phase 9: Real-time Simulation (Planned)
+
 - Simulation clock
 - Tick-based execution
 - Time management
 
 ### Phase 10: Event System (Planned)
+
 - Complete event engine
 - Event persistence
 - Event replay

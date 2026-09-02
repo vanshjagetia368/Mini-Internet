@@ -79,12 +79,25 @@ export type {
 } from './devices/DeviceFactory.js';
 
 // ── Packet engine ─────────────────────────────────────────────────────────────
-export { PacketEngine, PacketFactory, isValidPacketDropReason } from './packets/index.js';
+export {
+  PacketEngine,
+  PacketFactory,
+  isValidPacketDropReason,
+  PACKET_STATES,
+  TERMINAL_PACKET_STATES,
+  ALLOWED_PACKET_TRANSITIONS,
+  isTerminalPacketState,
+  isValidPacketTransition,
+  transitionPacket,
+  hasReachedState,
+} from './packets/index.js';
 export type {
   Packet,
   PacketState,
   CreatePacketOptions,
   PacketDropReason,
+  PacketLifecycleTransition,
+  PacketTransitionReason,
 } from './packets/index.js';
 
 // ── Logging ───────────────────────────────────────────────────────────────────
