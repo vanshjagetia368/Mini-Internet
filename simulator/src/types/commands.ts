@@ -125,7 +125,9 @@ export interface SendPacketCommand {
   readonly type: 'SEND_PACKET';
   readonly sourceDeviceId: DeviceId;
   readonly destinationDeviceId: DeviceId;
-  readonly payloadSize: number;
+  readonly sourceIp: string;
+  readonly destinationIp: string;
+  readonly payload: string;
 }
 
 export interface UpdateLinkCommand {

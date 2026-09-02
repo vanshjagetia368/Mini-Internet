@@ -78,6 +78,15 @@ export type {
   RouterCreationResult,
 } from './devices/DeviceFactory.js';
 
+// ── Packet engine ─────────────────────────────────────────────────────────────
+export { PacketEngine, PacketFactory, isValidPacketDropReason } from './packets/index.js';
+export type {
+  Packet,
+  PacketState,
+  CreatePacketOptions,
+  PacketDropReason,
+} from './packets/index.js';
+
 // ── Logging ───────────────────────────────────────────────────────────────────
 export type { Logger, LogLevel } from './core/logger.js';
 export { createLogger, SilentLogger } from './core/logger.js';

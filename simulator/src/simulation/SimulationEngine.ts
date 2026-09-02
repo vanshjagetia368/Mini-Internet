@@ -35,12 +35,14 @@ import type { SimulationCommand } from '../types/commands.js';
 import { type Result, ok, err } from '../types/errors.js';
 import type { Logger } from '../core/logger.js';
 import { RoutingAlgorithmRegistry } from '../routing/RoutingAlgorithm.js';
+import { PacketEngine } from '../packets/PacketEngine.js';
 
 export class SimulationEngine {
   readonly id: SimulationId;
   readonly network: NetworkGraph;
   readonly eventBus: EventBus;
   readonly routing: RoutingAlgorithmRegistry;
+  readonly packets: PacketEngine;
 
   private _status: SimulationStatus = 'IDLE';
   private readonly config: SimulationConfig;
@@ -54,6 +56,7 @@ export class SimulationEngine {
     this.routing = new RoutingAlgorithmRegistry();
 
     this.network = new NetworkGraph(config.networkId, 'Simulation Network', this.eventBus);
+    this.packets = new PacketEngine(this.network, this.eventBus);
 
     this.logger.info('SimulationEngine created', { simulationId: this.id });
   }
@@ -186,12 +189,19 @@ export class SimulationEngine {
         // TODO Phase 2: IP configuration
         return err('INVALID_COMMAND', 'SET_INTERFACE_IP not yet implemented');
 
-      case 'SEND_PACKET':
-        // TODO Phase 3: Packet simulation
-        return err(
-          'INVALID_COMMAND',
-          'SEND_PACKET not yet implemented — requires routing implementation first',
-        );
+      case 'SEND_PACKET': {
+        const createResult = this.packets.createPacket({
+          sourceDeviceId: command.sourceDeviceId,
+          destinationDeviceId: command.destinationDeviceId,
+          sourceIp: command.sourceIp,
+          destinationIp: command.destinationIp,
+          payload: command.payload,
+        });
+        if (!createResult.ok) return createResult;
+
+        const sendResult = this.packets.sendPacket(createResult.value.id);
+        return sendResult.ok ? ok(undefined) : sendResult;
+      }
 
       case 'RESUME_SIMULATION':
         // TODO Phase 2
