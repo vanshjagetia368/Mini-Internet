@@ -29,6 +29,7 @@ export type SimulatorErrorCode =
   | 'INVALID_HOST_ADDRESS'
   | 'ENTITY_UNAVAILABLE'
   | 'INVALID_ROUTE'
+  | 'NO_PATH'
   | 'PACKET_DROPPED'
   | 'SIMULATION_STATE_ERROR'
   | 'TTL_EXPIRED'

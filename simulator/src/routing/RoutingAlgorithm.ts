@@ -17,7 +17,8 @@
  *   - Link State (OSPF-style)
  *   - Custom / experimental algorithms
  *
- * CURRENT STATE: Interface + placeholder. No algorithms implemented.
+ * CURRENT STATE: BFS implemented (Prompt 10). Dijkstra, Distance Vector,
+ * and Link State remain planned.
  * See docs/ARCHITECTURE.md — "Planned: Routing Algorithms".
  */
 
@@ -89,8 +90,10 @@ export type RoutingAlgorithmName = 'BFS' | 'DIJKSTRA' | 'DISTANCE_VECTOR' | 'LIN
  * Registry mapping algorithm names to their implementations.
  * The active simulation uses one algorithm at a time, selected via config.
  *
- * PLACEHOLDER: No algorithms are registered yet. This will be populated
- * in later implementation stages.
+ * CURRENT STATE: The registry is generic. Algorithms register themselves
+ * (or are registered by an integration boundary). BFS is implemented in
+ * BfsRouter.ts but is NOT auto-registered here to avoid a circular import;
+ * future routing integration will register it.
  */
 export class RoutingAlgorithmRegistry {
   private readonly algorithms = new Map<RoutingAlgorithmName, RoutingAlgorithm>();

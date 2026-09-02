@@ -152,7 +152,7 @@ interface Packet {
   readonly sourceIp: string;
   readonly destinationIp: string;
   readonly payload: string;
-  readonly ttl: number;  // Time-to-live, default 64
+  readonly ttl: number; // Time-to-live, default 64
   currentLocation: DeviceId;
   state: PacketState;
   readonly history: DeviceId[];
@@ -191,7 +191,7 @@ Time-to-live implementation for packet lifetime management during network traver
 
 ```typescript
 interface Packet {
-  readonly ttl: number;  // Default 64, immutable after creation
+  readonly ttl: number; // Default 64, immutable after creation
 }
 ```
 
@@ -245,6 +245,7 @@ Destination
 **Lifecycle Integration**:
 
 TTL expiration uses the existing packet lifecycle:
+
 - Expired packets transition to DROPPED state
 - Drop reason is TTL_EXPIRED (structured, not generic error)
 - Terminal state immutability prevents resurrection
@@ -353,16 +354,59 @@ Guarantees:
 
 The routing algorithm abstraction — the core extension point for all future routing strategy implementations.
 
-**Current State**: Interface + placeholder. No algorithms implemented yet.
+**Current State**: Interface established. BFS implemented (Prompt 10). Dijkstra, Distance Vector, and Link State planned.
 
-**Planned Implementations**:
+**Implementations**:
 
-- BFS (breadth-first search shortest path)
-- Dijkstra (shortest weighted path)
-- Distance Vector (RIP-style)
-- Link State (OSPF-style)
+- ✅ BFS (breadth-first search shortest path, unweighted minimum hops)
+- 🔜 Dijkstra (shortest weighted path)
+- 🔜 Distance Vector (RIP-style)
+- 🔜 Link State (OSPF-style)
 
 **Design**: All routing decisions go through this interface. Devices and packets do not implement routing logic themselves.
+
+### BFS Routing
+
+**File**: `src/routing/BfsRouter.ts`
+
+**Status**: Implemented (Prompt 10).
+
+**Purpose**: The first routing algorithm. Answers _"what is the minimum-hop path from device A to device B through the current network topology?"_ treating every graph edge as equal cost (unweighted). Dijkstra (Prompt 11) will later add weighted edge costs.
+
+**Integration**: BFS operates on the read-only `Network` snapshot produced by `NetworkGraph.snapshot()`. It does NOT maintain a second adjacency list — device neighbors are resolved on demand from the existing devices/interfaces/links topology using a transient `InterfaceId → DeviceId` index rebuilt per call. The packet engine is untouched (no routing in packets).
+
+**Algorithm**:
+
+1. Validate source exists → `ENTITY_NOT_FOUND` (context `{ role: 'source' }`).
+2. Validate destination exists → `ENTITY_NOT_FOUND` (context `{ role: 'destination' }`).
+3. If `source === destination`, return a zero-hop route (path `[A]`, `totalCost = 0`) — valid local delivery, not an error.
+4. Initialize an **index-based queue** (`head` pointer, O(1) dequeue, never `Array.shift()`).
+5. Track `visited: Set<DeviceId>` — a node enters the BFS frontier at most once (cycle-safe; terminates on any graph).
+6. Track `parent: Map<DeviceId, { via: DeviceId; linkId: LinkId }>` — predecessor/link used to first reach each node.
+7. On discovering the destination, reconstruct immediately by walking `parent` backward and reversing → ordered source-to-destination route.
+8. If the queue exhausts, return `NO_PATH` (disconnected graph).
+
+**Result format**: Reuses the existing `Route` model:
+
+```text
+sourceDeviceId
+destinationDeviceId
+hops:       [ { deviceId, viaLinkId }, ... ]   // source NOT included (existing convention)
+totalCost:  hop count                          // each edge cost 1
+```
+
+**Complexity**: Time `O(V + E)`; Space `O(V)` (visited + parent + queue), where `V` = devices, `E` = links.
+
+**Determinism / tie-breaking**: Neighbors are returned in each device's interface iteration order (Map insertion order). No randomness, no shuffling. When multiple minimum-hop paths exist, the first-discovered deterministic path is returned.
+
+**Edge cases covered**: source = destination; invalid source; invalid destination; disconnected network; cycles; device self-loops (excluded from neighbor expansion); multiple shortest paths.
+
+**Files**:
+
+- `src/routing/BfsRouter.ts` — implementation
+- `src/routing/RoutingAlgorithm.ts` — `RoutingAlgorithm` interface, `Route`, `RouteHop`, registry (unchanged from Prompt 2/3)
+- `src/routing/index.ts` — module barrel
+- `src/routing/BfsRouter.test.ts` — 17 tests (unit + NetworkGraph integration)
 
 ### Event System
 
@@ -492,11 +536,11 @@ This separation enables:
 - TTL survives JSON serialization
 - Architecture documentation updated with TTL section
 
-### Phase 6: Routing (Planned)
+### Phase 6: Routing ✅ (BFS complete — Dijkstra & routing tables pending)
 
-- BFS pathfinding
-- Dijkstra algorithm
-- Routing table management
+- ✅ BFS pathfinding (Prompt 10): minimum-hop routes, typed NO_PATH, deterministic
+- 🔜 Dijkstra algorithm (Prompt 11): weighted shortest path
+- 🔜 Routing table management (Prompt 12)
 
 ### Phase 7: Advanced Routing (Planned)
 

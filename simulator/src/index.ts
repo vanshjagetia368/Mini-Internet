@@ -51,13 +51,8 @@ export { NetworkGraph } from './network/NetworkGraph.js';
 export { EventBus } from './events/EventBus.js';
 
 // ── Routing ───────────────────────────────────────────────────────────────────
-export type {
-  RoutingAlgorithm,
-  RoutingAlgorithmName,
-  Route,
-  RouteHop,
-} from './routing/RoutingAlgorithm.js';
-export { RoutingAlgorithmRegistry } from './routing/RoutingAlgorithm.js';
+export type { RoutingAlgorithm, RoutingAlgorithmName, Route, RouteHop } from './routing/index.js';
+export { RoutingAlgorithmRegistry, BfsRouter } from './routing/index.js';
 
 // ── Simulation engine ─────────────────────────────────────────────────────────
 export { SimulationEngine } from './simulation/SimulationEngine.js';

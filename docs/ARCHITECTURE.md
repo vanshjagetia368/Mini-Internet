@@ -161,8 +161,8 @@ The simulator engine (`simulator/`) is responsible for:
 | Vitest + 57 passing unit tests                                                                               | ✅ Prompt 5         |
 | Architecture boundary tests (independence verified)                                                          | ✅ Prompt 2         |
 | Directory structure (core/network/devices/interfaces/links/packets/routing/events/failures/simulation/types) | ✅ Prompt 2         |
-| BFS routing                                                                                                  | Prompt 6            |
-| Dijkstra routing                                                                                             | Prompt 6            |
+| BFS routing                                                                                                  | ✅ Prompt 10        |
+| Dijkstra routing                                                                                             | Prompt 11           |
 | Distance Vector routing                                                                                      | Phase 4 / Prompt 6+ |
 | Link State routing                                                                                           | Phase 4 / Prompt 6+ |
 | Packet simulation                                                                                            | Prompt 7            |
@@ -202,7 +202,7 @@ client/src/services/       ← API/WebSocket client code.
 
 ## 8. Routing Algorithm Abstraction
 
-**Status: Interface established. No algorithms implemented yet.**
+**Status: BFS implemented (Prompt 10). Dijkstra, Distance Vector, and Link State planned.**
 
 All routing algorithms implement `RoutingAlgorithm`:
 
@@ -213,14 +213,25 @@ interface RoutingAlgorithm {
 }
 ```
 
-Planned implementations in `simulator/src/routing/`:
+Implementations in `simulator/src/routing/`:
 
-| Algorithm       | Phase | Description                   |
-| --------------- | ----- | ----------------------------- |
-| BFS             | 3     | Unweighted shortest hop count |
-| Dijkstra        | 3     | Weighted shortest path        |
-| Distance Vector | 4     | RIP-style distributed routing |
-| Link State      | 4     | OSPF-style global topology    |
+| Algorithm       | Phase | Description                   | Status       |
+| --------------- | ----- | ----------------------------- | ------------ |
+| BFS             | 3     | Unweighted shortest hop count | ✅ Prompt 10 |
+| Dijkstra        | 3     | Weighted shortest path        | 🔜 Planned   |
+| Distance Vector | 4     | RIP-style distributed routing | 🔜 Planned   |
+| Link State      | 4     | OSPF-style global topology    | 🔜 Planned   |
+
+### BFS Routing (`BfsRouter`)
+
+`src/routing/BfsRouter.ts` implements BFS pathfinding over the existing
+NetworkGraph snapshot (no second adjacency representation). It returns the
+existing `Route` model (`hops` exclude the source; `totalCost` = hop count)
+and uses an index-based queue, a `visited` Set, and a parent map for
+reconstruction. Validates source/destination (`ENTITY_NOT_FOUND`), supports
+source = destination (zero-hop route), returns typed `NO_PATH` when
+disconnected, skips device self-loops, and is fully deterministic
+(interface insertion order tie-breaking). Complexity: Time `O(V+E)`, Space `O(V)`.
 
 **Key rule**: Packets ask the routing subsystem for forwarding information.
 Packets do not implement routing themselves.
@@ -289,7 +300,8 @@ Co-located tests in simulator: `NetworkGraph.test.ts`, `EventBus.test.ts`
 
 ### Phase 3 — Routing + Packet Simulation
 
-- BFS and Dijkstra routing implementations
+- BFS routing implementation (✅ Prompt 10)
+- Dijkstra routing implementation (prompt 11)
 - Packet creation and forwarding
 - TTL, packet drop, delivery events
 - Latency and loss simulation

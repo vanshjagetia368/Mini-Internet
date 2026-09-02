@@ -10,24 +10,27 @@ Completed:
 ✓ Packet engine
 ✓ Packet lifecycle
 ✓ TTL
+✓ BFS routing / pathfinding
 
 Current:
-TTL implementation (Prompt 9) with:
+BFS routing / pathfinding (Prompt 10) with:
 
-- TTL field added to Packet domain model with default value of 64
-- TTL validation: rejects negative, NaN, fractional, and Infinity values
-- Custom TTL support via packet creation options (for testing edge cases)
-- Router-only decrement semantics: only ROUTER device types decrement TTL
-- PCs and Servers do NOT decrement TTL (non-router devices)
-- Centralized TTL decrement helper function with validation
-- TTL expiration: when TTL reaches 0, packet is dropped with TTL_EXPIRED reason
-- TTL_EXPIRED integrated with existing packet lifecycle state machine
-- Packet identity preserved through TTL changes (same packet ID, decremented TTL)
-- TTL survives JSON serialization and reconstruction
-- Comprehensive TTL test suite (default TTL, custom TTL, validation, router decrement, non-router behavior, TTL=1 expiration, TTL=2 expiration, TTL=64 survival, no reset behavior, dropped packet protection, packet independence, serialization, drop reason, identity preservation)
-- Architecture documentation updated with TTL section (semantics, validation, expiration, lifecycle integration, diagrams)
-- Error codes updated to include TTL_EXPIRED
-- All existing packet tests passing with TTL integration
+- First routing algorithm implemented (BfsRouter)
+- Minimum-hop (unweighted) pathfinding using Breadth-First Search
+- Operates on the existing NetworkGraph snapshot (no duplicate adjacency)
+- Reuses the existing Route / RouteHop domain models (no new route type)
+- Deterministic neighbor ordering (interface insertion order)
+- Index-based queue (O(1) dequeue; no Array.shift())
+- Visited Set<DeviceId> prevents infinite traversal on cyclic graphs
+- Parent/predecessor map enables O(path length) reconstruction
+- Source = destination → zero-hop route ([A], hopCount 0) — valid local delivery
+- Invalid source/destination → typed ENTITY_NOT_FOUND with role context
+- Disconnected source/destination → typed NO_PATH error
+- Device-level self-loops skipped during traversal (never a hop)
+- Complexity: Time O(V + E), Space O(V)
+- 17 new unit/integration tests (307 total simulator tests passing)
+- `NO_PATH` added to SimulatorErrorCode
+- Exported from the package public API (index.ts)
 
 Packet engine complete with:
 
@@ -59,8 +62,8 @@ IPv4 / subnet engine complete with:
 
 Not yet implemented:
 
-- Routing algorithms (BFS, Dijkstra) (Prompt 10)
-- Routing tables
+- Dijkstra weighted routing (Prompt 11)
+- Routing tables (Prompt 12)
 - Dynamic routing (Distance Vector / Link State)
 - Simulation clock / event queue / step
 - Frontend network editor
