@@ -11,9 +11,35 @@ Completed:
 ✓ Packet lifecycle
 ✓ TTL
 ✓ BFS routing / pathfinding
+✓ Dijkstra weighted routing
+✓ Routing tables
+✓ Dynamic route calculation
 
 Current:
-BFS routing / pathfinding (Prompt 10) with:
+Dynamic route calculation (Prompt 13) complete with:
+
+- `DynamicRoutingService` — automatic routing table recalculation on topology changes
+- Event-driven architecture: subscribes to topology change events (DEVICE_CREATED, DEVICE_REMOVED, LINK_CREATED, LINK_REMOVED, NODE_FAILED, NODE_RECOVERED, LINK_FAILED, LINK_RECOVERED)
+- DIRTY/VALID state tracking to avoid unnecessary recalculations
+- Atomic table updates: complete new tables built before replacing old ones
+- Automatic recalculation on topology changes with lazy evaluation (on-demand)
+- Explicit `recalculateRoutes()` method for manual triggering
+- Supports both BFS and Dijkstra algorithms (configurable via constructor)
+- Integration with SimulationEngine: service initialized on simulation start, shutdown on stop
+- New `ROUTING_TABLES_UPDATED` event emitted when tables are recalculated
+- Query methods: `getRoutingTable(routerId)`, `getAllRoutingTables()`, `hasRoutingTable(routerId)`
+- State tracking: `getRoutingState()` returns current DIRTY/VALID status
+- Reuses existing `RoutingTableBuilder` with BFS/Dijkstra algorithms
+- Prevents stale routes by rebuilding complete tables on each recalculation
+- Supports multiple independent routers with separate routing tables
+- Correct next-hop resolution (first hop, not final destination)
+- Correct interface resolution (router's own interface on the link to next hop)
+- Preserves algorithm-specific costs (BFS hop count, Dijkstra weighted cost)
+- Handles unreachable destinations (no entry created, not an error)
+- 20 comprehensive tests covering all dynamic routing scenarios
+- Exported from package public API (index.ts)
+
+BFS routing (Prompt 10), Dijkstra routing (Prompt 11), and routing tables (Prompt 12) complete with:
 
 - First routing algorithm implemented (BfsRouter)
 - Minimum-hop (unweighted) pathfinding using Breadth-First Search
@@ -28,7 +54,7 @@ BFS routing / pathfinding (Prompt 10) with:
 - Disconnected source/destination → typed NO_PATH error
 - Device-level self-loops skipped during traversal (never a hop)
 - Complexity: Time O(V + E), Space O(V)
-- 17 new unit/integration tests (307 total simulator tests passing)
+- 17 new unit/integration tests (353 total simulator tests passing)
 - `NO_PATH` added to SimulatorErrorCode
 - Exported from the package public API (index.ts)
 
@@ -60,11 +86,32 @@ IPv4 / subnet engine complete with:
 - Router multi-subnet support (per-interface independent subnets)
 - 183 unit tests passing
 
+Dijkstra weighted routing complete with:
+
+- `DijkstraRouter` implements weighted shortest-path using a binary min-heap (`PriorityQueue`)
+- Uses the `Link.cost` field as the routing metric (non-negative)
+- Injectable `LinkWeightProvider` allows alternative metrics (e.g. delayMs)
+- Validates and rejects negative edge costs with `INVALID_TOPOLOGY`
+- Complexity: Time O((V+E) log V), Space O(V)
+- With uniform costs, produces identical results to BFS
+- 25 unit tests passing
+
+Routing tables complete with:
+
+- `RoutingTable` — immutable, per-router forwarding table keyed by destination
+- `RoutingTableBuilder` — transforms algorithm output into forwarding decisions
+  - `buildForRouter(network, routerId)` → `Result<RoutingTable>`
+  - `buildAll(network)` → `Map<DeviceId, RoutingTable>` (one per router)
+- `RoutingTableEntry` — `{ destination, nextHop, cost, interfaceId }`
+  - `nextHop` is the first device after the router on the path (not the final destination)
+  - `interfaceId` is the router's own outgoing interface (not the neighbor's)
+- Validates router type (`INVALID_COMMAND` for non-routers) and existence (`ENTITY_NOT_FOUND`)
+- Unreachable destinations silently skipped; no self-entries
+- 21 tests passing (5 RoutingTable unit tests + 16 RoutingTableBuilder tests)
+
 Not yet implemented:
 
-- Dijkstra weighted routing (Prompt 11)
-- Routing tables (Prompt 12)
-- Dynamic routing (Distance Vector / Link State)
+- Distance Vector / Link State routing protocols
 - Simulation clock / event queue / step
 - Frontend network editor
 - WebSockets
