@@ -52,7 +52,13 @@ export { EventBus } from './events/EventBus.js';
 
 // ── Routing ───────────────────────────────────────────────────────────────────
 export type { RoutingAlgorithm, RoutingAlgorithmName, Route, RouteHop } from './routing/index.js';
-export { RoutingAlgorithmRegistry, BfsRouter } from './routing/index.js';
+export { RoutingAlgorithmRegistry, BfsRouter, DijkstraRouter } from './routing/index.js';
+export type { LinkWeightProvider } from './routing/index.js';
+
+export { RoutingTable, RoutingTableBuilder } from './routing/index.js';
+export type { RoutingTableEntry } from './routing/index.js';
+
+export { DynamicRoutingService } from './routing/index.js';
 
 // ── Simulation engine ─────────────────────────────────────────────────────────
 export { SimulationEngine } from './simulation/SimulationEngine.js';

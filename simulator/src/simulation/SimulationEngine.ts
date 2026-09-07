@@ -29,13 +29,16 @@
 import { NetworkGraph } from '../network/NetworkGraph.js';
 import { EventBus } from '../events/EventBus.js';
 import { IdFactory } from '../types/ids.js';
-import type { SimulationId } from '../types/ids.js';
+import type { SimulationId, DeviceId } from '../types/ids.js';
 import type { SimulationConfig, SimulationStatus } from '../types/domain.js';
 import type { SimulationCommand } from '../types/commands.js';
 import { type Result, ok, err } from '../types/errors.js';
 import type { Logger } from '../core/logger.js';
 import { RoutingAlgorithmRegistry } from '../routing/RoutingAlgorithm.js';
+import { DynamicRoutingService } from '../routing/DynamicRoutingService.js';
+import { BfsRouter } from '../routing/BfsRouter.js';
 import { PacketEngine } from '../packets/PacketEngine.js';
+import type { RoutingTable } from '../routing/RoutingTable.js';
 
 export class SimulationEngine {
   readonly id: SimulationId;
@@ -43,6 +46,7 @@ export class SimulationEngine {
   readonly eventBus: EventBus;
   readonly routing: RoutingAlgorithmRegistry;
   readonly packets: PacketEngine;
+  readonly dynamicRouting: DynamicRoutingService;
 
   private _status: SimulationStatus = 'IDLE';
   private readonly config: SimulationConfig;
@@ -58,6 +62,15 @@ export class SimulationEngine {
     this.network = new NetworkGraph(config.networkId, 'Simulation Network', this.eventBus);
     this.packets = new PacketEngine(this.network, this.eventBus);
 
+    // Initialize dynamic routing with BFS as default algorithm
+    // TODO: Make algorithm configurable via SimulationConfig in future
+    this.dynamicRouting = new DynamicRoutingService(
+      this.network,
+      this.eventBus,
+      new BfsRouter(),
+      logger,
+    );
+
     this.logger.info('SimulationEngine created', { simulationId: this.id });
   }
 
@@ -72,6 +85,10 @@ export class SimulationEngine {
       return err('SIMULATION_STATE_ERROR', `Cannot start simulation in state ${this._status}`);
     }
     this._status = 'RUNNING';
+
+    // Initialize dynamic routing service when simulation starts
+    this.dynamicRouting.initialize();
+
     this.logger.info('Simulation started', { simulationId: this.id });
     this.eventBus.emit({
       id: IdFactory.event(),
@@ -81,6 +98,20 @@ export class SimulationEngine {
       wallClockMs: Date.now(),
     });
     return ok(undefined);
+  }
+
+  /**
+   * Get the routing table for a specific router.
+   */
+  getRoutingTable(routerId: DeviceId): RoutingTable | undefined {
+    return this.dynamicRouting.getRoutingTable(routerId);
+  }
+
+  /**
+   * Get all routing tables.
+   */
+  getAllRoutingTables(): Map<DeviceId, RoutingTable> {
+    return this.dynamicRouting.getAllRoutingTables();
   }
 
   pause(): Result<void> {
@@ -104,6 +135,10 @@ export class SimulationEngine {
       return err('SIMULATION_STATE_ERROR', `Cannot stop simulation in state ${this._status}`);
     }
     this._status = 'COMPLETED';
+
+    // Shutdown dynamic routing service
+    this.dynamicRouting.shutdown();
+
     this.logger.info('Simulation stopped', { simulationId: this.id });
     this.eventBus.emit({
       id: IdFactory.event(),
@@ -145,10 +180,16 @@ export class SimulationEngine {
       }
 
       case 'CREATE_LINK': {
-        const options: { bandwidthBps?: number; delayMs?: number; lossRate?: number } = {};
+        const options: {
+          bandwidthBps?: number;
+          delayMs?: number;
+          lossRate?: number;
+          cost?: number;
+        } = {};
         if (command.bandwidthBps !== undefined) options.bandwidthBps = command.bandwidthBps;
         if (command.delayMs !== undefined) options.delayMs = command.delayMs;
         if (command.lossRate !== undefined) options.lossRate = command.lossRate;
+        if (command.cost !== undefined) options.cost = command.cost;
         const result = this.network.addLink(command.endpointA, command.endpointB, options);
         return result.ok ? ok(undefined) : result;
       }

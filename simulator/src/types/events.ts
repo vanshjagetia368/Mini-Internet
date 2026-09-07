@@ -44,8 +44,9 @@ export type SimulationEventType =
   | 'NODE_RECOVERED'
   | 'LINK_FAILED'
   | 'LINK_RECOVERED'
-  // Routing (future)
+  // Routing
   | 'ROUTE_CHANGED'
+  | 'ROUTING_TABLES_UPDATED'
   // Packets (future)
   | 'PACKET_CREATED'
   | 'PACKET_FORWARDED'
@@ -108,6 +109,11 @@ export interface LinkRecoveredEvent extends BaseEvent {
   readonly linkId: LinkId;
 }
 
+export interface RoutingTablesUpdatedEvent extends BaseEvent {
+  readonly type: 'ROUTING_TABLES_UPDATED';
+  readonly routerCount: number;
+}
+
 export interface PacketCreatedEvent extends BaseEvent {
   readonly type: 'PACKET_CREATED';
   readonly packetId: PacketId;
@@ -164,6 +170,7 @@ export type SimulationEvent =
   | NodeRecoveredEvent
   | LinkFailedEvent
   | LinkRecoveredEvent
+  | RoutingTablesUpdatedEvent
   | PacketCreatedEvent
   | PacketForwardedEvent
   | PacketDeliveredEvent
